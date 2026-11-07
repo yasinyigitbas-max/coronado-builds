@@ -1,0 +1,50 @@
+From edd3a1e9d7ace544dc0750df94f45d7639e5dc13 Mon Sep 17 00:00:00 2001
+From: bugcheck <bugcheck@local>
+Date: Sat, 7 Nov 2026 01:26:53 +0000
+Subject: [PATCH 04/10] Wardrobe: sentences for top/bottoms/shoes; never leave
+ it stuck
+
+Wardrobe.wear() asks CharCreator.sentence() for 'top' / 'bottoms' / 'shoes', but
+SENT only has the creator keys (whole outfits), so Wear errored after hiding the
+panel: choice not saved, is_open stuck true, wardrobe could not be reopened.
+sentence() now builds 'I am wearing a navy T-shirt.' / 'I am wearing blue
+jeans.' from CharLook.OUTFITS, and wear() saves a piece without a line instead
+of failing.
+---
+ core/char_creator.gd    | 6 ++++++
+ ui/wardrobe/wardrobe.gd | 2 ++
+ 2 files changed, 8 insertions(+)
+
+diff --git a/core/char_creator.gd b/core/char_creator.gd
+index d877295c..627d64e3 100644
+--- a/core/char_creator.gd
++++ b/core/char_creator.gd
+@@ -380,6 +380,12 @@ func sentence(key: String, i: int) -> Array:
+ 	if key == "outfit":
+ 		var lab := option_label(key, i)
+ 		return ["I am wearing: %s." % String(lab[0]).to_lower(), "Giydiğim: %s." % String(lab[1]).to_lower()]
++	if key in ["top", "bottoms", "shoes"]:   # bugcheck: the Wardrobe rows (CharLook.OUTFITS pieces); SENT has no lines for them
++		var opts: Array = CharLook.OUTFITS.get(String(choices.get("gender", "men")), CharLook.OUTFITS.men)[key]
++		var nm := String(opts[clampi(i, 0, opts.size() - 1)][0]).get_slice(" (", 0)
++		nm = nm.left(1).to_lower() + nm.substr(1)   # "Navy T-shirt" -> "navy T-shirt"
++		var art := ("an " if nm.left(1) in ["a", "e", "i", "o", "u"] else "a ") if key == "top" else ""   # pants / shoes: plural
++		return ["I am wearing %s%s." % [art, nm], "Giydiğim: %s." % nm]
+ 	return SENT[key][i]
+ func current_index(key: String) -> int:
+ 	match key:
+diff --git a/ui/wardrobe/wardrobe.gd b/ui/wardrobe/wardrobe.gd
+index 2ecacc27..85caf0da 100644
+--- a/ui/wardrobe/wardrobe.gd
++++ b/ui/wardrobe/wardrobe.gd
+@@ -99,6 +99,8 @@ func wear() -> bool:
+ 	for r in ROWS:
+ 		if sel[r] == int(CharCreator.choices.get(r, 0)): continue
+ 		var s: Array = CharCreator.sentence(r, sel[r])
++		if s.is_empty() or str(s[0]) == "":   # bugcheck: no line to say -> keep the choice instead of a stuck, hidden wardrobe
++			CharCreator.choices[r] = sel[r]; changed = true; continue
+ 		var res: Dictionary = await CoreSvc.listen(PackedStringArray([s[0]]), "Say: \"%s\"" % s[0], "Söyle: \"%s\" (%s)" % [s[0], s[1]])
+ 		if not Voice.counts(res):
+ 			_root.visible = true; return false
+-- 
+2.43.0
+

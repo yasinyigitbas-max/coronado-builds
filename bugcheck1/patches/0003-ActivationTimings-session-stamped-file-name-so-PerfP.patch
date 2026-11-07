@@ -1,0 +1,50 @@
+From 25ad49397df0be0e3c2ad07715dcc3b6f9911853 Mon Sep 17 00:00:00 2001
+From: bugcheck <bugcheck@local>
+Date: Sat, 7 Nov 2026 01:25:01 +0000
+Subject: [PATCH 03/10] ActivationTimings: session-stamped file name so
+ PerfProbe prunes it
+
+activation_<unix>.jsonl never matched PerfProbe.session_of(), so one file per
+launch accumulated in user://perf and every Send logs zip carried all of them.
+Name it activation_<PerfProbe _ts>.jsonl, let session_of() accept .jsonl, and
+delete the legacy unix-named files once.
+---
+ debug/activation_timings.gd | 8 +++++++-
+ debug/perf_probe.gd         | 2 +-
+ 2 files changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/debug/activation_timings.gd b/debug/activation_timings.gd
+index fcaf56d8..a1df87ce 100644
+--- a/debug/activation_timings.gd
++++ b/debug/activation_timings.gd
+@@ -42,7 +42,13 @@ func _ready() -> void:
+ 	process_mode = Node.PROCESS_MODE_ALWAYS
+ 	process_priority = -100000 # record beginning of callback; does not change other nodes' relative order
+ 	DirAccess.make_dir_recursive_absolute("user://perf")
+-	var path := "user://perf/activation_%d.jsonl" % int(Time.get_unix_time_from_system())
++	# bugcheck: same session stamp as PerfProbe (run_<YYYY-MM-DD_HH-MM-SS>.csv) so PerfProbe._prune_sessions keeps only
++	# the last KEEP_SESSIONS sessions and Send logs zips only those (the old activation_<unix>.jsonl names were never pruned)
++	var stamp := String(_pp.get("_ts")) if _pp and String(_pp.get("_ts")) != "" else Time.get_datetime_string_from_system().replace(":", "-").replace("T", "_")
++	var path := "user://perf/activation_%s.jsonl" % stamp
++	for f in DirAccess.get_files_at("user://perf"):   # files left by the first actprobe1 builds (unix-time names)
++		if f.begins_with("activation_") and f.ends_with(".jsonl") and f.trim_prefix("activation_").trim_suffix(".jsonl").is_valid_int():
++			DirAccess.remove_absolute("user://perf".path_join(f))
+ 	_file = FileAccess.open(path, FileAccess.WRITE)
+ 	var now := Time.get_ticks_usec(); _last_write = now
+ 	_rows.append({"type":"meta", "schema":"actprobe1", "build_id":FileAccess.get_file_as_string("res://build_id.txt").strip_edges(), "engine":Engine.get_version_info().string, "renderer_selected":RenderingServer.get_current_rendering_method(), "perfprobe_start_us":int(_pp.get("_start_us")) if _pp else 0, "perfprobe_frame_at_ready":int(_pp.get("_frame")) if _pp else -1, "ticks_us":now, "unix_us":int(Time.get_unix_time_from_system()*1000000.0), "enabled":_enabled, "detail_per_second":DETAIL_PER_SECOND, "meaning":"elapsed wall time only; add_child includes native notifications/physics/render registration; no forced sync or GPU timer"})
+diff --git a/debug/perf_probe.gd b/debug/perf_probe.gd
+index 94437545..8938b622 100644
+--- a/debug/perf_probe.gd
++++ b/debug/perf_probe.gd
+@@ -902,7 +902,7 @@ var _kept: Dictionary = {} ## session timestamps kept (current included)
+ static func session_of(f: String) -> String:
+ 	# brown-pr8 K: any "<kind>_<YYYY-MM-DD_HH-MM-SS>.csv|.txt" (run / spikes / nodes / objects / loopdelta / texmem /
+ 	# grid / future kinds), not only the listed prefixes, so no session file type is left to grow
+-	if _sess_re == null: _sess_re = RegEx.create_from_string("^[A-Za-z0-9_]+?_(\\d{4}-\\d{2}-\\d{2}_\\d{2}-\\d{2}-\\d{2})\\.(csv|txt)$")
++	if _sess_re == null: _sess_re = RegEx.create_from_string("^[A-Za-z0-9_]+?_(\\d{4}-\\d{2}-\\d{2}_\\d{2}-\\d{2}-\\d{2})\\.(csv|txt|jsonl)$")
+ 	var m := _sess_re.search(f)
+ 	return m.get_string(1) if m else ""
+ static var _sess_re: RegEx = null
+-- 
+2.43.0
+

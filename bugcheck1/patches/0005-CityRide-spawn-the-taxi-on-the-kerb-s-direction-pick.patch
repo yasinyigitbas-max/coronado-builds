@@ -1,0 +1,75 @@
+From 82d005621c594d5a001e8704596abc78696d656c Mon Sep 17 00:00:00 2001
+From: bugcheck <bugcheck@local>
+Date: Sat, 7 Nov 2026 01:45:11 +0000
+Subject: [PATCH 05/10] CityRide: spawn the taxi on the kerb's direction, pick
+ the shortest route
+
+_spawn_candidates() also walked upstream of the opposite carriageway, and
+_try_spawn() took the first candidate nearest in a straight line, which can be a
+~2 km drive (Hotel del: 90 m away, 2047 m route). Only same-direction kerb-edge
+lanes now, and among the same <= 6 candidates the shortest actual route wins
+(extra route searches capped at SPAWN_PICK_US = 15 ms once one taxi exists).
+All 14 stands: never-arrived 2 -> 0, typical pickup wait ~100 s -> ~50 s;
+test_cityride FAIL -> PASS; test_taxi / test_hitchhike still PASS.
+---
+ cityride/city_ride.gd | 28 +++++++++++++++++++++-------
+ 1 file changed, 21 insertions(+), 7 deletions(-)
+
+diff --git a/cityride/city_ride.gd b/cityride/city_ride.gd
+index f46a6665..56b89025 100644
+--- a/cityride/city_ride.gd
++++ b/cityride/city_ride.gd
+@@ -27,6 +27,7 @@ const PER_KM := 2.0
+ const STAND_R := 6.0
+ const BOARD_R := 4.5
+ const SPAWN_HOPS := 6      ## lanes upstream of the stand to try spawning from (out of view)
++const SPAWN_PICK_US := 15000   ## bugcheck: budget for comparing extra spawn candidates' routes (the first one is always taken)
+ const SPAWN_MIN := 60.0   ## never closer than this (and out of view in game)
+ const WAIT_MAX := 300.0    ## give up + refund if no car could reach the stand
+ 
+@@ -128,8 +129,10 @@ func _spawn_candidates(S: TrafficSim, kerb: Vector3) -> Array:
+ 	var nl := S.R.nearest_lane(kerb.x, kerb.z)
+ 	var front := [nl]
+ 	if nl != "":   # every lane of the kerb edge (the kerb lane itself can be a bay lane with no predecessors)
+-		var eid: int = RoadsAPI.parse_lane(nl)[0]
+-		for dir in ["f", "b"]:
++		var pl: Array = RoadsAPI.parse_lane(nl); var eid: int = pl[0]
++		# bugcheck: only lanes driving the kerb lane's direction. Predecessors of the opposite carriageway spawned the taxi
++		# on the far side of the road: it drove past the stand and needed a multi-km loop (Hotel del, Vons: 4+ min, or never)
++		for dir in [String(pl[1])]:
+ 			for li in (S.R.edges[eid]["fwd"] if dir == "f" else S.R.edges[eid]["bwd"]).size():
+ 				var k := RoadsAPI.lane_key(eid, dir, li)
+ 				if k != nl: front.append(k)
+@@ -154,13 +157,24 @@ func _try_spawn(S: TrafficSim) -> void:
+ 	for p in _spawn_candidates(S, A.kerb):
+ 		if p.distance_to(A.kerb) >= SPAWN_MIN: cands.append(p)
+ 	cands.sort_custom(func(a, b): return a.distance_squared_to(A.kerb) < b.distance_squared_to(A.kerb))
++	# bugcheck: the nearest point in a straight line can be a ~2 km drive (Hotel del: 90 m away, 2047 m route), so the
++	# same <= 6 candidates that were tried before are all routed and the shortest actual drive wins
++	# (time-capped: once one taxi exists, extra route searches stop after SPAWN_PICK_US so a booking never hitches)
++	var best: Dictionary = {}; var best_len := INF; var t0 := Time.get_ticks_usec()
+ 	for p in cands.slice(0, 6):
++		if not best.is_empty() and Time.get_ticks_usec() - t0 > SPAWN_PICK_US: break
+ 		var c := S.spawn_scripted(MODEL, p, A.kerb, sim_override == null)
+-		if not c.is_empty():
+-			car = c
+-			S.pull_over(car, A.kerb, 1)
+-			if not S.arrived.is_connected(_on_arrived): S.arrived.connect(_on_arrived)
+-			return
++		if c.is_empty(): continue
++		var L := 0.0
++		for k in c.path: L += float(S.piece(k).len)
++		if L < best_len:
++			if not best.is_empty(): S.remove_car(best)
++			best = c; best_len = L
++		else: S.remove_car(c)
++	if not best.is_empty():
++		car = best
++		S.pull_over(car, A.kerb, 1)
++		if not S.arrived.is_connected(_on_arrived): S.arrived.connect(_on_arrived)
+ 
+ func _on_arrived(id: int) -> void:
+ 	if car.is_empty() or id != int(car.id): return
+-- 
+2.43.0
+

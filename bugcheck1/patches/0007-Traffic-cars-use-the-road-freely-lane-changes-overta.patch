@@ -1,0 +1,383 @@
+From 29feb4d422bcea51bfa1c832e6a659e2ec5fccf9 Mon Sep 17 00:00:00 2001
+From: bugcheck <bugcheck@local>
+Date: Sat, 7 Nov 2026 02:37:30 +0000
+Subject: [PATCH 07/10] Traffic: cars use the road freely (lane changes,
+ overtaking, kerb stops)
+
+Cars could never change lanes (only buses), so a car in the wrong lane for a turn
+had to go round the block (right-right-right = the '270 deg' left turn; routes
++550 m median, up to +2.2 km at 157 of 430 multi-lane approaches).
+
+- Lane changes: one lane at a time, gap acceptance on the target lane, the body
+  slides over (existing lat offset) and stays an obstacle in the old lane until
+  it has left it. Checked once per second per car (4x while a turn needs it).
+- Turns owned by a neighbouring lane are planned ('folded'), reached by a lane
+  change before the junction; routing (route_drivable/_lane_path) does the same
+  with a cost that grows on short blocks. An ambient car that can't get over in
+  time skips that turn (never turns across the neighbour lane).
+- Free-driving cars pass slow cars and go around held / broken-down ones on
+  multi-lane roads; now and then an ambient car stops at the kerb (rightmost
+  lane) for 12-40 s. Parked cars are not gridlock-breaker victims.
+- CityRide: no taxi spawn within 7 m of another car; the taxi doesn't treat its
+  own waiting rider as an obstacle on its last 25 m.
+- goal index now follows the path-history trim.
+
+8 sim-minutes x 3 seeds, 60 cars: collisions 0, red runs 0, wrong-lane turns 0,
+~300 lane changes, 50-70 overtakes; jam despawns and mean speed unchanged; sim
+step cost +3%. All 14 CityRide stands reached (median ~50 s, max 108 s; Hotel del
+264 s -> 93 s). test_cityride / test_taxi / test_hitchhike / test_scripted /
+test_positions / test_release / test_car_mesh pass.
+---
+ cityride/city_ride.gd  |   1 +
+ traffic/traffic_sim.gd | 218 ++++++++++++++++++++++++++++++++++++++---
+ 2 files changed, 208 insertions(+), 11 deletions(-)
+
+diff --git a/cityride/city_ride.gd b/cityride/city_ride.gd
+index 56b89025..2427d755 100644
+--- a/cityride/city_ride.gd
++++ b/cityride/city_ride.gd
+@@ -163,6 +163,7 @@ func _try_spawn(S: TrafficSim) -> void:
+ 	var best: Dictionary = {}; var best_len := INF; var t0 := Time.get_ticks_usec()
+ 	for p in cands.slice(0, 6):
+ 		if not best.is_empty() and Time.get_ticks_usec() - t0 > SPAWN_PICK_US: break
++		if not S._cars_clear_near(p, 7.0): continue   # never spawn into a car standing in the junction next to the lane
+ 		var c := S.spawn_scripted(MODEL, p, A.kerb, sim_override == null)
+ 		if c.is_empty(): continue
+ 		var L := 0.0
+diff --git a/traffic/traffic_sim.gd b/traffic/traffic_sim.gd
+index 96e6e749..b036fc61 100644
+--- a/traffic/traffic_sim.gd
++++ b/traffic/traffic_sim.gd
+@@ -398,6 +398,7 @@ func remove_car(car: Dictionary) -> void:
+ 	sync()
+ 	car._gone = true
+ 	_release(car)
++	_lc_done(car)
+ 	_occ_del(car)
+ 	cars.erase(car)
+ 	stats.despawned += 1
+@@ -435,6 +436,21 @@ func _extend(car: Dictionary) -> void:
+ 			var ne: int = RoadsAPI.parse_lane(nx[0])[0]
+ 			ww *= 0.3 + sqrt(edge_aadt.get(ne, 300.0) / 2000.0)
+ 			opts.append(nx); w.append(ww)
++		if lane_logic and car.bus.is_empty():
++			# traffic-lanes: a turn owned by a sibling lane of the same approach is also an option ("folded"); the car
++			# changes into that lane before the junction (_lane_think), the folded connector is only the fallback
++			var have := {}
++			for o in opts: have[o[0]] = true
++			for sib in _sibs(last):
++				for nx in R.next_lanes(sib):
++					if have.has(nx[0]) or str(nx[1]) == "uturn" or not is_drivable(nx[0]): continue
++					have[nx[0]] = true
++					var ne2: int = RoadsAPI.parse_lane(nx[0])[0]
++					# only where the block is long enough to change lanes before the junction (else the turn is rare)
++					var room_k: float = clampf((float(L.len) - 25.0) / 50.0, 0.0, 1.0)
++					if room_k <= 0.0: continue
++					opts.append([nx[0], nx[1], nx[2], sib])
++					w.append((3.0 if str(nx[1]) == "straight" else 1.0) * 0.5 * room_k * (0.3 + sqrt(edge_aadt.get(ne2, 300.0) / 2000.0)))
+ 		if opts.is_empty():
+ 			car.dead = true; break
+ 		var tot := 0.0
+@@ -445,10 +461,12 @@ func _extend(car: Dictionary) -> void:
+ 			r -= w[i]
+ 			if r <= 0.0: pick = opts[i]; break
+ 		var C := conn_piece(last, pick[0], str(pick[1]), int(pick[2]))
++		if pick.size() > 3: C.owner = pick[3]
+ 		car.path.append(C.key)
+ 	# trim history
+ 	while car.pi > 4:
+ 		car.path.pop_front(); car.pi -= 1
++		if not car.goal.is_empty(): car.goal[0] = int(car.goal[0]) - 1   # traffic-lanes: goal index follows the trim
+ 
+ func _update_pose(car: Dictionary) -> void:
+ 	var P := piece(car.path[car.pi])
+@@ -602,7 +620,7 @@ func crossing_walk(c: Dictionary) -> bool:
+ ## distance (along the car's path from its front) to the first thing it must stop for; INF if clear in range.
+ func _obstacle(car: Dictionary, look: float) -> Array:
+ 	if not _probe: car.guard_by = -1
+-	var best := INF; var why := ""; var lv := 0.0
++	var best := INF; var why := ""; var lv := 0.0; var lead = null
+ 	var u0 := Time.get_ticks_usec()
+ 	var front: float = car.s + car.len * 0.5
+ 	var d := -front   # distance from the car front to the start of piece i
+@@ -617,7 +635,7 @@ func _obstacle(car: Dictionary, look: float) -> Array:
+ 			var os: float = o.s - o.len * 0.5
+ 			if i == car.pi and o.s <= car.s: continue
+ 			var g: float = d + os
+-			if g < best and g > -car.len: best = g; why = "car"; lv = o.v
++			if g < best and g > -car.len: best = g; why = "car"; lv = o.v; lead = o
+ 		# reserved node: cars inside the junction on conflicting connectors are covered by the reservation
+ 		var ctl: Dictionary = P.ctl if P.kind == "lane" else {}
+ 		var nkey: String = car.path[i + 1] if i + 1 < car.path.size() else ""
+@@ -786,7 +804,10 @@ func _obstacle(car: Dictionary, look: float) -> Array:
+ 	var still: Array = []   # per walker: standing still (waiting at the kerb for us)
+ 	for pd in _peds_near(me):
+ 		if pd.pos.distance_squared_to(me) < 1600.0: walkers.append(pd.pos); still.append(not pd.moving and str(pd.state) != "cross")   # a walker stalled mid-crossing is ON the road: full corridor
+-	if player_pos.distance_squared_to(me) < 1600.0: walkers.append(player_pos); still.append(_player_still_t > 1.0)
++	# traffic-lanes: a CityRide taxi on its last 25 m to the stand doesn't treat its own waiting rider as an obstacle (it stops
++	# at the kerb point beside them anyway); a lane-change-late approach otherwise froze there for good (Spreckels Park)
++	var own_rider: bool = car.cityride and not car.goal.is_empty() and _goal_dist(car) < 25.0
++	if player_pos.distance_squared_to(me) < 1600.0 and not own_rider: walkers.append(player_pos); still.append(_player_still_t > 1.0)
+ 	for wi in walkers.size():
+ 		var w: Vector3 = walkers[wi]
+ 		var rel: Vector3 = w - me
+@@ -830,6 +851,7 @@ func _obstacle(car: Dictionary, look: float) -> Array:
+ 			var g: float = along - 2.2
+ 			if g < best: best = g; why = "pedestrian"; lv = 0.0
+ 	_pf("ob_walk", u0)
++	if not _probe: car.lead = lead if why == "car" else null; car.ob_gap = best   # lane logic (_lane_think)
+ 	return [best, why, lv]
+ 
+ ## would moving ds along the path put our body into a car we are not already touching?
+@@ -861,8 +883,159 @@ func _body_blocked(car: Dictionary, ds: float) -> bool:
+ 		if _obb_overlap(nb, o) and not _obb_overlap(car, o): return true
+ 	return false
+ 
++# ---------------------------------------------------------------- lane use (traffic-lanes)
++## Cars are no longer bound to the lane they spawned in: a turn owned by a neighbouring lane is reached by a lane
++## change before the junction (a "folded" connector is the fallback, guarded by the same-approach conflict rule),
++## free-driving cars pass a slow car, every car goes around a held / broken-down one on multi-lane roads, and now
++## and then an ambient car stops at the kerb for a while. Decisions run once per LC_THINK_S per car.
++const LC_THINK_S := 1.0
++const LC_SLIDE_MPS := 1.1     ## sideways speed of the visual slide (m/s, at least)
++const LC_MIN_END := 8.0       ## no lane change closer than this (+ body) to the junction
++const FOLD_COST := 25.0       ## route cost of a lane change (m)
++const PARK_P := 0.004         ## chance per think tick on an eligible lane (~1 stop / 4 min of driving there)
++var lane_logic := true
++var _sib_cache := {}
++var _right_cache := {}
++func _sibs(key: String) -> Array:
++	if _sib_cache.has(key): return _sib_cache[key]
++	var out := []
++	if not key.begins_with("c|"):
++		var pl := RoadsAPI.parse_lane(key)
++		for k in R.edge_lanes(pl[0], pl[1]):
++			if k != key and is_drivable(k): out.append(k)
++	_sib_cache[key] = out
++	return out
++
++## sideways offset of q from piece P at s, + = right of travel
++static func _lat_of(P: Dictionary, s: float, q: Vector3) -> float:
++	var r := sample(P, s); var f: Vector3 = r[1]
++	return Vector3(-f.z, 0.0, f.x).normalized().dot(q - (r[0] as Vector3))
++
++func _is_rightmost(key: String) -> bool:
++	if _right_cache.has(key): return _right_cache[key]
++	var P := piece(key); var sm: float = float(P.len) * 0.5; var ok := true
++	for sib in _sibs(key):
++		var Q := piece(sib)
++		if _lat_of(P, sm, sample(Q, float(Q.len) * 0.5)[0]) > 0.5: ok = false
++	_right_cache[key] = ok
++	return ok
++
++func _lc_gap_ok(car: Dictionary, to_key: String, s2: float) -> bool:
++	var P2 := piece(to_key)
++	if s2 < car.len or s2 > float(P2.len) - (car.len + LC_MIN_END): return false
++	for o in _occ.get(to_key, []):
++		if o == car: continue
++		var ds: float = float(o.s) - s2
++		var need: float = (car.len + float(o.len)) * 0.5
++		if ds >= 0.0: need += maxf(4.0, car.v * 0.8)
++		else: need += maxf(5.0, float(o.v) * 1.2 + maxf(0.0, float(o.v) - car.v) * 1.5)
++		if absf(ds) < need: return false
++	return true
++
++## move the car into a sibling lane of the same approach, keeping its world position (the body slides over via lat)
++func _change_lane(car: Dictionary, to_key: String) -> bool:
++	if car.res != -1 or car.res_piece != "" or car.hold or not car.goal.is_empty() or not car.bus.is_empty(): return false
++	var P := piece(car.path[car.pi])
++	if P.kind != "lane" or car.s > float(P.len) - (car.len + LC_MIN_END): return false
++	if absi(int(RoadsAPI.parse_lane(to_key)[2]) - int(P.idx)) != 1: return false   # one lane at a time
++	var P2 := piece(to_key)
++	var s2 := _project(P2, car.pos)
++	if not _lc_gap_ok(car, to_key, s2): return false
++	var nxt: Dictionary = piece(car.path[car.pi + 1]) if car.pi + 1 < car.path.size() else {}
++	var keep: bool = not nxt.is_empty() and nxt.kind == "conn" and nxt.has("owner")   # keep the chosen turn
++	if car.fixed_path and not keep: return false   # a routed car only changes lane for its route
++	var old_pos: Vector3 = car.pos
++	_lc_done(car)
++	_occ_del(car)
++	var tail: Array = car.path.slice(car.pi + 2) if keep else []
++	car.path.resize(car.pi + 1)
++	car.path[car.pi] = to_key
++	if keep:
++		var NC := conn_piece(to_key, str(nxt.to), str(nxt.turn), int(nxt.node))
++		if str(nxt.owner) != to_key: NC.owner = nxt.owner   # still one lane to go
++		car.path.append(NC.key)
++		car.path.append_array(tail)
++	car.s = s2
++	_occ_add(car)
++	if not _occ.has(P.key): _occ[P.key] = []
++	_occ[P.key].append(car); car.lc_from = P.key   # still an obstacle in the old lane until the body has left it
++	car.erase("gkey")
++	if not car.fixed_path: _extend(car)
++	car.lat = clampf(_lat_of(P2, s2, old_pos), -4.5, 4.5); car.lat_to = 0.0
++	_update_pose(car)
++	stats.lane_changes = int(stats.get("lane_changes", 0)) + 1
++	return true
++
++## ambient: drop the planned (folded) turn, continue with a turn the current lane really has
++func _skip_turn(car: Dictionary) -> void:
++	car.path.resize(car.pi + 1)
++	lane_logic = false; _extend(car); lane_logic = true
++	car.erase("gkey"); car.lc_need = false
++	stats.missed_turns = int(stats.get("missed_turns", 0)) + 1
++
++## the body has left the old lane (or the car moved on / was removed): drop its shadow entry there
++func _lc_done(car: Dictionary) -> void:
++	if car.has("lc_from"):
++		var lst: Array = _occ.get(str(car.lc_from), [])
++		lst.erase(car)
++		car.erase("lc_from")
++
++func _lane_think(car: Dictionary) -> void:
++	if car.hold or not car.goal.is_empty(): return
++	var P := piece(car.path[car.pi])
++	if P.kind != "lane": return
++	if car.res != -1:
++		# already booked the junction: an ambient car still in the wrong lane for a folded turn gives the booking back
++		# and takes a turn its own lane has (it never crosses the neighbour lane inside the box)
++		if not car.fixed_path and car.pi + 1 < car.path.size() and piece(car.path[car.pi + 1]).has("owner") and car.res_piece == car.path[car.pi + 1]:
++			_release(car); _skip_turn(car)
++		return
++	# 1) the next turn belongs to a neighbouring lane: get into it before the junction (checked 4x as often meanwhile)
++	car.lc_need = false
++	if car.pi + 1 < car.path.size():
++		var C := piece(car.path[car.pi + 1])
++		if C.kind == "conn" and C.has("owner"):
++			car.lc_need = true
++			var oi: int = int(RoadsAPI.parse_lane(str(C.owner))[2]); var me: int = int(P.idx)
++			var step_k := RoadsAPI.lane_key(int(P.edge), str(P.dir), me + signi(oi - me))
++			if _change_lane(car, step_k): stats.turn_lane_changes = int(stats.get("turn_lane_changes", 0)) + 1
++			elif not car.fixed_path and car.s > float(P.len) - (car.len + LC_MIN_END + 6.0):
++				# too late to get over: an ambient driver skips that turn and takes one its own lane allows (crossing the
++				# neighbour lane inside the box made mutual footprint-guard locks)
++				_skip_turn(car)
++			return
++	if car.fixed_path or car.scripted or car.cityride or int(P.get("lanes", 1)) < 2: return
++	# 2) pass a slow free-driving car, or go around a held / broken-down one (not a queue at a light or junction)
++	var ld = car.get("lead")
++	if ld is Dictionary and not ld.get("_gone", false) and float(car.get("ob_gap", INF)) < 35.0:
++		var vdes: float = float(P.vmax) * float(car.vk)
++		var lw := str(ld.get("why", ""))
++		var parked: bool = ld.hold or lw in ["goal", "bus_stop", "dead_end"] or float(ld.get("stuck_t", 0.0)) > 12.0
++		var slow: bool = lw == "" and float(ld.v) < vdes * 0.65 and car.v < vdes * 0.8
++		if parked or slow:
++			var best_k := ""; var best_room: float = float(car.ob_gap) + 8.0
++			for sib in _sibs(P.key):
++				if absi(int(RoadsAPI.parse_lane(sib)[2]) - int(P.idx)) != 1: continue
++				var P2 := piece(sib); var s2 := _project(P2, car.pos)
++				var room: float = float(P2.len) - s2
++				for o in _occ.get(sib, []): if float(o.s) > s2: room = minf(room, float(o.s) - s2)
++				if room > best_room: best_room = room; best_k = sib
++			if best_k != "" and _change_lane(car, best_k):
++				stats.overtakes = int(stats.get("overtakes", 0)) + 1
++				return
++	# 3) now and then: a short stop at the kerb (rightmost lane of a multi-lane road, so others can pass)
++	if car.v > 3.0 and rng.randf() < PARK_P and _is_rightmost(P.key):
++		var at: float = car.s + 25.0 + car.v * 2.0
++		if car.s > 10.0 and at < float(P.len) - 12.0 and P.cross.is_empty():
++			car.goal = [car.pi, at]; car.lat_to = 1.2; car.arrived = false
++			car.park = rng.randf_range(12.0, 40.0)
++			stats.parks = int(stats.get("parks", 0)) + 1
++
+ func _step_car(car: Dictionary, dt: float) -> void:
+ 	car.age += dt
++	if lane_logic and car.bus.is_empty():
++		car.lc_t = float(car.get("lc_t", 0.0)) + dt
++		if car.lc_t >= (LC_THINK_S * 0.25 if car.get("lc_need", false) else LC_THINK_S): car.lc_t = 0.0; _lane_think(car)
+ 	var P := piece(car.path[car.pi])
+ 	var vmax: float = P.vmax * car.vk
+ 	if P.kind == "lane" and car.pi + 1 < car.path.size():
+@@ -885,8 +1058,16 @@ func _step_car(car: Dictionary, dt: float) -> void:
+ 		if gd < 6.0: car.lat = move_toward(car.lat, car.lat_to, dt * 0.8)
+ 		if absf(gd) < 1.5 and car.v < 0.2 and not car.arrived:
+ 			car.arrived = true; car.hold = true; car.v = 0.0
+-			if _bg >= 0 and _on_worker(): _arr_q.append(int(car.id))   # brown-plan-b3: emitted by sync() on the main thread
++			if car.has("park"): pass   # traffic-lanes: an ambient kerb stop is nobody's ride
++			elif _bg >= 0 and _on_worker(): _arr_q.append(int(car.id))   # brown-plan-b3: emitted by sync() on the main thread
+ 			else: arrived.emit(int(car.id))
++		if car.has("park") and car.arrived:
++			car.park = float(car.park) - dt
++			if float(car.park) <= 0.0:   # drive on
++				car.erase("park"); car.goal = []; car.hold = false; car.arrived = false; car.lat_to = 0.0
++	elif absf(float(car.lat) - float(car.lat_to)) > 0.001:   # traffic-lanes: lane-change / un-park slide
++		car.lat = move_toward(car.lat, car.lat_to, dt * maxf(LC_SLIDE_MPS, car.v * 0.12))
++		if absf(float(car.lat)) < 0.6: _lc_done(car)
+ 	# bus stop dwell
+ 	if not car.bus.is_empty():
+ 		var bs := _bus_next_stop(car)
+@@ -923,6 +1104,7 @@ func _step_car(car: Dictionary, dt: float) -> void:
+ 			if col_log.size() < 12: col_log.append(["RED", P.key, snappedf(s_old, 0.1), snappedf(car.v, 0.1), car.type, ob[1], snappedf(float(ob[0]), 0.1), car.res_piece, snappedf(car.age, 0.1)])
+ 	car.spin += car.v * dt / wheel_r(car.type)
+ 	while car.s > P.len and car.pi + 1 < car.path.size():
++		_lc_done(car)
+ 		_occ_del(car)
+ 		car.s -= P.len
+ 		car.pi += 1
+@@ -930,6 +1112,7 @@ func _step_car(car: Dictionary, dt: float) -> void:
+ 		var prev := piece(car.path[car.pi - 1])
+ 		P = piece(car.path[car.pi])
+ 		if prev.kind == "conn" and car.res_piece == prev.key: _release(car)
++		if P.kind == "conn" and P.has("owner"): stats.folded_turns = int(stats.get("folded_turns", 0)) + 1
+ 		if not car.bus.is_empty(): car.bus.li = _bus_lane_index(car)
+ 		_extend(car)
+ 	if car.s > P.len: car.s = P.len; car.v = 0.0
+@@ -1400,7 +1583,7 @@ func step_spawn(dt: float, tod := -1.0) -> void:
+ 		# gridlock breaker: an ambient car stopped (not at a red) for 40 s (out of view) / 90 s (anywhere) leaves the world; a guard or
+ 		# junction cycle of mutually waiting cars cannot resolve itself, and real traffic would reroute
+ 		# progress-based: creeping 0.5 m/s back and forth in a lock is still stuck; a red light resets it
+-		if not c.has("anchor") or (c.pos as Vector3).distance_to(c.anchor) > 4.0 or str(c.get("why", "")) in ["signal_red", "stop"]:
++		if not c.has("anchor") or (c.pos as Vector3).distance_to(c.anchor) > 4.0 or str(c.get("why", "")) in ["signal_red", "stop"] or c.has("park"):
+ 			c.anchor = c.pos; c.stuck_t = 0.0
+ 		else: c.stuck_t = float(c.get("stuck_t", 0.0)) + dt
+ 		var ambient: bool = not c.scripted and not c.cityride and c.bus.is_empty()
+@@ -1596,6 +1779,13 @@ func _lane_path(r: Array) -> Array:
+ 		for nx in R.next_lanes(a):
+ 			if nx[0] == b:
+ 				out.append(conn_piece(a, b, str(nx[1]), int(nx[2])).key); hit = true; break
++		if not hit and lane_logic:   # traffic-lanes: folded turn (owned by a sibling lane; the car changes lane first)
++			for sib in _sibs(a):
++				for nx in R.next_lanes(sib):
++					if nx[0] == b:
++						var FC := conn_piece(a, b, str(nx[1]), int(nx[2])); FC.owner = sib
++						out.append(FC.key); hit = true; break
++				if hit: break
+ 		if not hit: return []
+ 		out.append(b)
+ 	return out
+@@ -1689,12 +1879,17 @@ func route_drivable(from_key: String, to_key: String, max_expand := 200000) -> A
+ 			return path
+ 		if cur[0] > dist.get(k, INF): continue
+ 		var l: float = R.edges[RoadsAPI.parse_lane(k)[0]]["length"]
+-		for nx in R.next_lanes(k):
+-			var ne: int = RoadsAPI.parse_lane(str(nx[0]))[0]
+-			if ne != e0 and ne != e1 and not _drive_ok.get(ne, false): continue
+-			var nd: float = cur[0] + l + (400.0 if str(nx[1]) == "uturn" else 0.0)
+-			if nd < dist.get(nx[0], INF):
+-				dist[nx[0]] = nd; prev[nx[0]] = k; open.append([nd, nx[0]])
++		var srcs: Array = [k]
++		if lane_logic: srcs.append_array(_sibs(k))   # traffic-lanes: change lane before the junction (cost FOLD_COST)
++		for src in srcs:
++			var extra: float = 0.0 if src == k else FOLD_COST + maxf(0.0, 60.0 - l) * 3.0   # short block: hard to get over
++			for nx in R.next_lanes(src):
++				if src != k and str(nx[1]) == "uturn": continue
++				var ne: int = RoadsAPI.parse_lane(str(nx[0]))[0]
++				if ne != e0 and ne != e1 and not _drive_ok.get(ne, false): continue
++				var nd: float = cur[0] + l + extra + (400.0 if str(nx[1]) == "uturn" else 0.0)
++				if nd < dist.get(nx[0], INF):
++					dist[nx[0]] = nd; prev[nx[0]] = k; open.append([nd, nx[0]])
+ 	return R.route(from_key, to_key, max_expand)   # nothing over public roads: the old unfiltered route
+ 
+ ## Stop abreast of at_pos (on the current path), easing kerb_side (1 = right kerb, -1 = left) ~1.2 m over; hold there.
+@@ -1708,6 +1903,7 @@ func pull_over(car: Dictionary, at_pos: Vector3, kerb_side := 1) -> void:
+ func teleport(car: Dictionary, lane: String, s: float) -> void:
+ 	sync()
+ 	_release(car)
++	_lc_done(car)
+ 	_occ_del(car)
+ 	car.path = [lane]; car.pi = 0; car.s = s; car.v = 0.0; car.acc = 0.0
+ 	car.lat = 0.0; car.lat_to = 0.0; car.goal = []; car.arrived = false; car.hold = false
+-- 
+2.43.0
+

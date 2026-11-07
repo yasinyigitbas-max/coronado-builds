@@ -30,7 +30,7 @@ From `project/`, apply every file in `bugcheck1/patches/` **in number order** wi
 git am /path/to/bugcheck1/patches/0001-*.patch
 git am /path/to/bugcheck1/patches/0002-*.patch
 ...
-git am /path/to/bugcheck1/patches/0008-*.patch
+git am /path/to/bugcheck1/patches/0010-*.patch
 ```
 
 | Patch | What it fixes | Files |
@@ -43,6 +43,8 @@ git am /path/to/bugcheck1/patches/0008-*.patch
 | 0006 | Tree "S:" shadow batches drawn as extra visible full-detail trees (+15 draws at spawn) | furniture_layer.gd |
 | 0007 | Traffic: lane changes, overtaking, going around stopped cars, kerb stops (no more "270 degree" right-right-right left turns) | traffic/traffic_sim.gd, cityride/city_ride.gd |
 | 0008 | Door clearance: trees / street props removed from the 2 m in front of every shop door (10 doors were blocked); `CellPkg.VERSION` 5 → 6 | furniture/door_clear.gd (new), furniture_layer.gd, perf/cell_pkg.gd |
+| 0009 | Doors: Open works on the first tap (was dropped while the room loaded); package shops woken (were empty shells) | shops/interior/interiors_layer.gd, shops/shops_layer.gd, public/public_layer.gd |
+| 0010 | Traffic: no lane change near a lane's start (1 junction-exit collision in test_traffic); lane test ignores intentional offsets | traffic/traffic_sim.gd, tests/traffic/test_traffic.gd |
 
 After applying all of them, run the import again (`--import`) so the new script gets its `.uid` / cache entries.
 
@@ -82,6 +84,7 @@ are `extends Node` scenes. The bug check used `bugcheck1/tools/late_launch.gd`:
 |---|---|
 | tests/worker/test_tree_col.gd | PASS (281/281 trunks solid) |
 | tests/traffic/test_cityride.gd | PASS (3 trips arrive, 0 collisions / red runs) |
+| tests/traffic/test_traffic.gd | PASS (0 collisions, 0 red runs). **Not yet re-run after 0010: run it first; if it fails, report and stop.** |
 | tests/rides/test_taxi.gd, tests/rides/test_hitchhike.gd | PASS |
 | tests/traffic/test_scripted.gd, test_positions.gd, test_release.gd, test_car_mesh.gd | PASS |
 | tests/minion/test_prop_collision.gd | `DOORWAYS ... blocked=0` (was 2-10); other lines unchanged |

@@ -1,0 +1,60 @@
+From 2692ce6c4dcc27262ee32e41e050d5fa199bff07 Mon Sep 17 00:00:00 2001
+From: bugcheck <bugcheck@local>
+Date: Sat, 7 Nov 2026 01:46:53 +0000
+Subject: [PATCH 06/10] Furniture: don't build tree 'S:' shadow batches while
+ tree shadows are off
+
+The per-cell 'S:' batches are created with cast_shadow OFF (t171), so instead of
+casting they rendered in the main pass as extra full-detail trees over the LOD /
+faded trees (at spawn: 15 batches, 52 trees, 15 draw calls). New
+tree_shadow_batches (default false, passed to the worker via the compute input)
+skips them; normal tree batches unchanged (62 batches / 563 trees).
+---
+ map_dc/coronado/furniture/furniture_layer.gd | 10 +++++++---
+ 1 file changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/map_dc/coronado/furniture/furniture_layer.gd b/map_dc/coronado/furniture/furniture_layer.gd
+index c0cf2674..881c12eb 100644
+--- a/map_dc/coronado/furniture/furniture_layer.gd
++++ b/map_dc/coronado/furniture/furniture_layer.gd
+@@ -1005,6 +1005,10 @@ func _tree_far_node(mi: GeometryInstance3D) -> void:
+ ## directional_shadow_max_distance (120 m outdoors in test_coronado) were drawn into the shadow pass for nothing since the
+ ## near ring was doubled to 150 m. Pixel-identical (no shadow is drawn there anyway), fewer shadow-pass instances.
+ var tree_shadow_dist := 120.0
++## bugcheck: the "S:" shadow batches are created with cast_shadow OFF (t171: no tree realtime shadows), which made them
++## render in the MAIN pass as extra full-detail trees on top of the LOD / faded ones (15 batches, 52 trees, 15 draws at
++## spawn). Off = not built. To bring tree shadows back set true AND use SHADOW_CASTING_SETTING_SHADOWS_ONLY in _tree_apply.
++var tree_shadow_batches := false
+ static func _arg_f(pre: String, dflt: float) -> float:
+ 	for a in OS.get_cmdline_user_args(): if a.begins_with(pre): return float(a.substr(pre.length()))
+ 	return dflt
+@@ -1039,7 +1043,7 @@ func _tree_inputs(p: Vector3) -> Dictionary:
+ 	for k: Vector2i in live:
+ 		var tl: Array = (live[k] as Node).get_meta("tree_list", [])
+ 		if not tl.is_empty(): lists.append(tl)
+-	return {"p": p, "lists": lists, "kpx": _lod_px_per_m_at_1m() / maxf(lod_threshold_px, 0.01), "sd": _sun_sd + 10.0,
++	return {"p": p, "lists": lists, "kpx": _lod_px_per_m_at_1m() / maxf(lod_threshold_px, 0.01), "sd": _sun_sd + 10.0, "shadows": tree_shadow_batches,
+ 		"tree_near": tree_near, "tree_far": tree_far, "mid": mid_lod_dist}
+ 
+ func _update_trees(p: Vector3) -> void:
+@@ -1061,7 +1065,7 @@ func _tree_compute(inp: Dictionary) -> Dictionary:
+ 	var kpx: float = inp.kpx
+ 	var lod_counts := {}; var n_cut := 0
+ 	var fin := tfar - TREE_FAR_FADE
+-	var sd: float = inp.sd; var sd2 := sd * sd   # +10 m: the tree's own crown radius
++	var sd: float = inp.sd; var sd2 := sd * sd; var shadows: bool = inp.get("shadows", false)   # +10 m: the tree's own crown radius
+ 	var imp_def: Array = _imp["Common1"]
+ 	for tl: Array in inp.lists:
+ 		for it: Array in tl:
+@@ -1099,7 +1103,7 @@ func _tree_compute(inp: Dictionary) -> Dictionary:
+ 				else:
+ 					_push_tree(near, key, xf, 2.0)
+ 				lod_counts[key] = lod_counts.get(key, 0) + 1
+-				if d2 <= sd2:   # gray-dc-fixes8: no shadow casters past the sun's shadow distance
++				if shadows and d2 <= sd2:   # gray-dc-fixes8: no shadow casters past the sun's shadow distance
+ 					var skey := cell + "S:" + sp
+ 					if not near.has(skey): near[skey] = []
+ 					var bs := xf.basis
+-- 
+2.43.0
+

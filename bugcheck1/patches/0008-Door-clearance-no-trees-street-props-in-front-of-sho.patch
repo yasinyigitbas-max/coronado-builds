@@ -1,0 +1,117 @@
+From 67add2dd4d1a6e64929a79ceb3c8de6fb5a9eec9 Mon Sep 17 00:00:00 2001
+From: bugcheck <bugcheck@local>
+Date: Sat, 7 Nov 2026 03:04:09 +0000
+Subject: [PATCH 08/10] Door clearance: no trees / street props in front of
+ shop doors (re-bake: CellPkg.VERSION 6)
+
+10 of 198 walk-in doorways were blocked (5 baked street props, 5 tree trunks). The
+furniture rows now drop anything whose footprint reaches into a 1.6 x 2 m box in
+front of any shop / vacant-unit door (door_clear.gd, same door frames as the shops
+layer). CellPkg.VERSION 5 -> 6 so every cell package is re-baked from the new rows.
+Live build (packages off): 28 props / trees removed, DOORWAYS 198 checked, 0 blocked.
+---
+ map_dc/coronado/furniture/door_clear.gd      | 40 ++++++++++++++++++++
+ map_dc/coronado/furniture/furniture_layer.gd | 25 ++++++++++++
+ map_dc/coronado/perf/cell_pkg.gd             |  2 +-
+ 3 files changed, 66 insertions(+), 1 deletion(-)
+ create mode 100644 map_dc/coronado/furniture/door_clear.gd
+
+diff --git a/map_dc/coronado/furniture/door_clear.gd b/map_dc/coronado/furniture/door_clear.gd
+new file mode 100644
+index 00000000..b1546600
+--- /dev/null
++++ b/map_dc/coronado/furniture/door_clear.gd
+@@ -0,0 +1,40 @@
++## Door clearance (bugcheck 2026-11-07): the space in front of every shop / vacant-unit door is kept free of street
++## furniture and trees. Used by CoronadoFurniture right after its rows are loaded, so the runtime build, the furniture
++## chunk bakes and the cell packages (tools/gray_bake) all get the same rows. Doors are computed exactly like
++## CoronadoShops does at runtime (_init_head: reversed facade edges flipped, separate_fronts) + the walk-in door
++## offset used by the shops layer / tests/minion/_boot.gd door_frame (u = w / 2 - 0.55, plaque = centre).
++## Found by tests/minion/test_prop_collision.gd DOORWAYS: 10 doors blocked (5 by props, 5 by tree trunks).
++extends RefCounted   ## preloaded by furniture_layer.gd as DoorClear (no global class: no cache step needed)
++
++const VERSION := 1
++const HALF_W := 0.8   ## half width along the facade (door ~1.1 m + margin)
++const DEPTH := 2.0    ## metres kept clear outward from the facade
++const KEEP := ["manhole"]   ## flush with the ground: walkable, never a blocker
++
++## [[centre: Vector2, along: Vector2, out: Vector2], ...] for every front / vacant unit that has a door
++static func rects() -> Array:
++	var j: Variant = JSON.parse_string(FileAccess.get_file_as_string(CoronadoShops.DATA)) if FileAccess.file_exists(CoronadoShops.DATA) else null
++	if not (j is Dictionary): return []
++	var fronts: Array = ((j as Dictionary).get("fronts", []) as Array).filter(func(f: Dictionary) -> bool: return not CoronadoShops.EXCLUDED.has(str(f.get("key", ""))))
++	var all: Array = fronts + ((j as Dictionary).get("vacant", []) as Array)
++	for f: Dictionary in all:   # same flip as CoronadoShops._init_head (sign art along a->b = street viewer's right)
++		if f.has("ax") and (float(f.bx) - float(f.ax)) * float(f.nz) - (float(f.bz) - float(f.az)) * float(f.nx) < 0.0:
++			var ax: float = f.ax; var az: float = f.az; f.ax = f.bx; f.az = f.bz; f.bx = ax; f.bz = az
++	CoronadoShops.separate_fronts(all)
++	var out := []
++	for f: Dictionary in all:
++		if not (f.get("uv", {}) as Dictionary).get("door") or not f.has("ax"): continue
++		var fr: Dictionary = CoronadoShops.front_frame(f)
++		var t: Vector2 = fr.t; var n: Vector2 = fr.n
++		var u := 0.0 if str(f.get("kind", "")) == "plaque" else float(f.w) * 0.5 - 0.55
++		out.append([(fr.c as Vector2) + t * u, t, n])
++	return out
++
++## true when a footprint circle (p, radius) reaches into one of the rects
++static func blocks(rs: Array, p: Vector2, radius: float) -> bool:
++	for r: Array in rs:
++		var d: Vector2 = p - (r[0] as Vector2)
++		if d.length_squared() > (DEPTH + HALF_W + radius + 1.0) * (DEPTH + HALF_W + radius + 1.0): continue
++		var a := d.dot(r[1]); var b := d.dot(r[2])
++		if absf(a) < HALF_W + radius and b > -radius and b < DEPTH + radius: return true
++	return false
+diff --git a/map_dc/coronado/furniture/furniture_layer.gd b/map_dc/coronado/furniture/furniture_layer.gd
+index 881c12eb..ad2134bb 100644
+--- a/map_dc/coronado/furniture/furniture_layer.gd
++++ b/map_dc/coronado/furniture/furniture_layer.gd
+@@ -1199,7 +1199,32 @@ func tree_place_sig(path: String, keep_palms: Array) -> int:
+ 	for p: String in PLACE_DEPS: parts.append(FileAccess.get_md5(p) if FileAccess.file_exists(p) else "-")
+ 	return Baked.sig_of(parts)
+ 
++## worker thread (black-dc-perffix2): trees.json rows, then the door clearance over ALL rows (props + trees)
+ func _load_trees_json() -> void:
++	_load_trees_rows()
++	_door_clear()
++
++## bugcheck 2026-11-07: drop street furniture / trees standing in front of a shop door (CoronadoDoorClear). Same rows for
++## the runtime build, the furniture chunk bakes and the cell packages, so a re-bake removes the baked blockers too.
++const DoorClear := preload("res://map_dc/coronado/furniture/door_clear.gd")
++var door_cleared := 0
++func _door_clear() -> void:
++	var rs := DoorClear.rects()
++	if rs.is_empty(): return
++	var n := 0
++	for k: Vector2i in data:
++		var kept := []
++		for r: Array in data[k]:
++			var t: String = types[int(r[0])]
++			if not t in DoorClear.KEEP:
++				var rad: float = FOOT.get("tree" if t.begins_with("tree") else t, 0.3)
++				if DoorClear.blocks(rs, Vector2(float(r[1]), float(r[3])), rad): n += 1; continue
++			kept.append(r)
++		data[k] = kept
++	door_cleared = n
++	print("CoronadoFurniture: %d props / trees removed from %d door fronts (door clearance v%d)" % [n, rs.size(), DoorClear.VERSION])
++
++func _load_trees_rows() -> void:
+ 	var path := ""
+ 	for p: String in TREES_JSONS:
+ 		if FileAccess.file_exists(p): path = p; break
+diff --git a/map_dc/coronado/perf/cell_pkg.gd b/map_dc/coronado/perf/cell_pkg.gd
+index c6f3363c..771c7ec9 100644
+--- a/map_dc/coronado/perf/cell_pkg.gd
++++ b/map_dc/coronado/perf/cell_pkg.gd
+@@ -23,7 +23,7 @@ const PP := preload("res://debug/pp.gd")   # brown-b9-ppfix: null-safe profiler
+ const DIR := "res://baked/cellpkg/"
+ const INDEX := DIR + "index.json"
+ const WANT := DIR + "cells.json"     ## the cells that must have a package (strict gate: a missing / stale one is a bake miss)
+-const VERSION := 5
++const VERSION := 6   ## 6: bugcheck door clearance (furniture rows changed, cell packages must be re-baked)
+ 
+ static var _idx: Dictionary = {}     ## "x_z" -> entry {file, sig, rooms, ...}
+ static var _read := false
+-- 
+2.43.0
+

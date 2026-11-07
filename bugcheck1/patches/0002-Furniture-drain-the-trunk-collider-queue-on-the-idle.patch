@@ -1,0 +1,31 @@
+From 45aa277205afaf21869a366244ff4d8f26879e19 Mon Sep 17 00:00:00 2001
+From: bugcheck <bugcheck@local>
+Date: Sat, 7 Nov 2026 00:43:04 +0000
+Subject: [PATCH 02/10] Furniture: drain the trunk collider queue on the idle
+ early-return path
+
+update_streaming() returns early when the player moved <= FURN_MOVE_M and nothing
+is building, which also skipped _drain_trunks() at the end of the function, so
+queued tree trunk colliders were never created while the player stood still or
+walked slowly (test_tree_col: hotel_del 0/52 trunks solid; 3/52 after 20 s).
+---
+ map_dc/coronado/furniture/furniture_layer.gd | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/map_dc/coronado/furniture/furniture_layer.gd b/map_dc/coronado/furniture/furniture_layer.gd
+index 5ac6090c..c0cf2674 100644
+--- a/map_dc/coronado/furniture/furniture_layer.gd
++++ b/map_dc/coronado/furniture/furniture_layer.gd
+@@ -483,6 +483,9 @@ func update_streaming(p: Vector3, force := false) -> void:
+ 	# start at least as early as with a per-frame scan (never later pop-in)
+ 	if not force and _job.is_empty() and _furn_idle and live.size() == _furn_nlive \
+ 			and Vector2(p.x, p.z).distance_to(_furn_p) <= FURN_MOVE_M:
++		# the trunk collider queue must keep draining while the player stands still / walks < FURN_MOVE_M
++		if not _trunk_q.is_empty():
++			PP.begin(&"furn_trunks"); _drain_trunks(Time.get_ticks_usec() + TRUNK_BUDGET_US); PP.end(&"furn_trunks")
+ 		return
+ 	_furn_p = Vector2(p.x, p.z)
+ 	var budget := 1 << 30 if force else per_frame
+-- 
+2.43.0
+

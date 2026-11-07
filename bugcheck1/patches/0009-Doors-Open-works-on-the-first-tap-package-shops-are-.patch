@@ -1,0 +1,171 @@
+From 6785e15f4947a111944dc739cf5cf718bf38780b Mon Sep 17 00:00:00 2001
+From: bugcheck <bugcheck@local>
+Date: Sat, 7 Nov 2026 03:04:09 +0000
+Subject: [PATCH 09/10] Doors: Open works on the first tap; package shops are
+ no longer empty
+
+- Open tapped while the room was still loading was dropped (latch only on a live
+  room): door stayed shut, needed a 2nd Use -> Open. Now remembered and applied the
+  frame the room goes live (shops + public rooms). Probe, Open at 0.05 s: original
+  4/5 doors never opened, fixed 5/5 opened (0.23-0.47 s).
+- Package shop rooms were never woken (the only _pkg_wq.append was in _pkg_cap_live,
+  which lost its caller with door-triggered loading): contents / buy points / staff
+  hidden, 9/63 pieces drawn even inside. Now woken when they go live from their door
+  (and when a dormant live one is used again): 33/64 drawn from 1.5 m outside, wake=2.
+---
+ map_dc/coronado/public/public_layer.gd        | 22 ++++++++++++++-
+ .../shops/interior/interiors_layer.gd         | 27 ++++++++++++++++++-
+ map_dc/coronado/shops/shops_layer.gd          |  7 ++---
+ 3 files changed, 49 insertions(+), 7 deletions(-)
+
+diff --git a/map_dc/coronado/public/public_layer.gd b/map_dc/coronado/public/public_layer.gd
+index 5caf0875..7cf44d45 100644
+--- a/map_dc/coronado/public/public_layer.gd
++++ b/map_dc/coronado/public/public_layer.gd
+@@ -238,6 +238,7 @@ func start_door(id: String) -> bool:
+ 
+ ## The door's menu closed without Open: stop the pending load / free the live room (sliced), keep nothing warm.
+ func stop_load(id: String) -> void:
++	open_pending.erase(id)
+ 	if inside_now(id): return    # never free the room the player stands in
+ 	_held.erase(id)
+ 	if _load_key == id: _load_key = ""
+@@ -251,6 +252,24 @@ func set_held(id: String, on: bool) -> void:
+ 	if on: _held[id] = true
+ 	else: _held.erase(id)
+ 
++## bugcheck 2026-11-07: Open tapped while the room is still loading (the load only starts with the menu's 0.5 s reveal,
++## a phone often needs longer) was dropped: latch_door() ran only when the room was already live, so the door stayed
++## shut and needed a second Use -> Open. Now the tap is remembered and applied the frame the room goes live (shop
++## build or package add). Forgotten on Cancel / Knock / walking away (stop_load, gate release) or after OPEN_PENDING_MS.
++const OPEN_PENDING_MS := 8000
++var open_pending := {}   ## key -> [player position, ticks ms]
++func open_when_ready(key: String, player_pos: Vector3) -> void:
++	open_pending[key] = [player_pos, Time.get_ticks_msec()]
++	_open_pending_step()
++func _open_pending_step() -> void:
++	for k: String in open_pending.keys():
++		var e: Array = open_pending[k]
++		if live.has(k) and is_instance_valid(live[k].get("room", null)):
++			open_pending.erase(k)
++			set_held(k, true)
++			live[k].room.latch_door(true, e[0])
++		elif Time.get_ticks_msec() - int(e[1]) > OPEN_PENDING_MS: open_pending.erase(k)
++
+ ## Is the player inside this room (local frame: front wall at z = 0, room z < 0)?
+ func inside_now(id: String) -> bool:
+ 	if not live.has(id) or target == null or not is_instance_valid(target): return false
+@@ -262,7 +281,7 @@ func inside_now(id: String) -> bool:
+ 
+ func _release_cb(id: String) -> Callable:
+ 	return func() -> void:
+-		_tok.erase(id); _held.erase(id)
++		_tok.erase(id); _held.erase(id); open_pending.erase(id)
+ 		if _load_key == id: _load_key = ""
+ 		if live.has(id): drop(id)
+ 
+@@ -378,6 +397,7 @@ func _process(delta: float) -> void:
+ func _process_pp_public_layer(dt: float) -> void:
+ 	var pq := _ppn()
+ 	if not _pub_add.is_empty(): _pub_add_step()
++	if not open_pending.is_empty(): _open_pending_step()
+ 	if pq: pq.begin(&"pub_portal")
+ 	_portal_cull()
+ 	if pq: pq.end(&"pub_portal")
+diff --git a/map_dc/coronado/shops/interior/interiors_layer.gd b/map_dc/coronado/shops/interior/interiors_layer.gd
+index abbaef9d..e7f5d6f1 100644
+--- a/map_dc/coronado/shops/interior/interiors_layer.gd
++++ b/map_dc/coronado/shops/interior/interiors_layer.gd
+@@ -244,6 +244,7 @@ func start_door(key: String) -> bool:
+ 	_load_key = key
+ 	if live.has(key):
+ 		live[key].held = true
++		if live[key].get("pkg", false) and int(live[key].get("wake", 0)) == 0 and not _pkg_wq.has(key): _pkg_wq.append(key)   # bugcheck: dormant -> wake
+ 		return true
+ 	if _tok.has(key):
+ 		_rush[key] = true
+@@ -258,6 +259,7 @@ func start_door(key: String) -> bool:
+ ## The door's menu closed without Open (Cancel / Knock / walk away): stop the pending load, free a live room, and hide
+ ## the doorway again (the closed door panel is drawn while the room is gone). Sliced: no one-frame free.
+ func stop_load(key: String) -> void:
++	open_pending.erase(key)
+ 	if player_inside(key):   # Yasin's rule: cancel frees a PENDING load, never the room the player stands in
+ 		if _rush.has(key): _rush.erase(key)
+ 		return
+@@ -281,10 +283,28 @@ func player_inside(key: String) -> bool:
+ func set_held(key: String, on: bool) -> void:
+ 	if live.has(key): live[key].held = on
+ 
++## bugcheck 2026-11-07: Open tapped while the room is still loading (the load only starts with the menu's 0.5 s reveal,
++## a phone often needs longer) was dropped: latch_door() ran only when the room was already live, so the door stayed
++## shut and needed a second Use -> Open. Now the tap is remembered and applied the frame the room goes live (shop
++## build or package add). Forgotten on Cancel / Knock / walking away (stop_load, gate release) or after OPEN_PENDING_MS.
++const OPEN_PENDING_MS := 8000
++var open_pending := {}   ## key -> [player position, ticks ms]
++func open_when_ready(key: String, player_pos: Vector3) -> void:
++	open_pending[key] = [player_pos, Time.get_ticks_msec()]
++	_open_pending_step()
++func _open_pending_step() -> void:
++	for k: String in open_pending.keys():
++		var e: Array = open_pending[k]
++		if live.has(k) and is_instance_valid(live[k].get("room", null)):
++			open_pending.erase(k)
++			set_held(k, true)
++			live[k].room.latch_door(true, e[0])
++		elif Time.get_ticks_msec() - int(e[1]) > OPEN_PENDING_MS: open_pending.erase(k)
++
+ ## The gate's release hook for this door: free whatever this door started (called when another door takes the slot).
+ func _release_cb(key: String) -> Callable:
+ 	return func() -> void:
+-		_tok.erase(key); _rush.erase(key)
++		_tok.erase(key); _rush.erase(key); open_pending.erase(key)
+ 		if _load_key == key: _load_key = ""
+ 		if live.has(key): drop(key)
+ 
+@@ -438,6 +458,7 @@ func _process_pp_interiors_layer(dt: float) -> void:
+ 	if _pkg_add.is_empty(): _pkg_wake_step()   # brown-perfrescue: never a wake step in an add-slice frame
+ 	_pe(&"shop_wake_step")
+ 	_pkg_add_step()
++	if not open_pending.is_empty(): _open_pending_step()
+ 	_pb(&"shop_doors")
+ 	for k: String in live:
+ 		var rv: Variant = live[k].room   # worker: a freed room (package unloaded under it) errored every frame
+@@ -634,6 +655,10 @@ func _pkg_add_step() -> void:
+ 		live[k] = rec
+ 		if shops.doors.has(k): shops.doors[k].set_meta("interior", room.get_path())
+ 		if _load_key == k: _load_key = ""   # the door's load is done: stop treating it as wanted
++		# bugcheck 2026-11-07: wake it (contents, buy points, then staff). The only queueing was in _pkg_cap_live(), which
++		# lost its caller with the door-triggered loading (worker-b17int-10): package shops stayed shells (9/63 pieces
++		# drawn, even inside).
++		if not _pkg_wq.has(k): _pkg_wq.append(k)
+ 		CellPkg.stats.rooms_woken += 1
+ 		_pkg_add = {}   # woken by _pkg_cap_live when among the nearest shop_full_cap
+ 	_pe(&"shop_pkg_add")
+diff --git a/map_dc/coronado/shops/shops_layer.gd b/map_dc/coronado/shops/shops_layer.gd
+index 13d195b5..9de59ea1 100644
+--- a/map_dc/coronado/shops/shops_layer.gd
++++ b/map_dc/coronado/shops/shops_layer.gd
+@@ -103,8 +103,7 @@ func _door_use(f: Dictionary, n: Node3D) -> void:
+ 	door_uses[key] = DoorMenu.add(ic, n, "shop_" + key,
+ 		func(by: Node3D = null) -> void:   # Open: keep the room and unlatch THIS door's sliding leaf (no proximity opening)
+ 			I.set_held(key, true)
+-			if I.live.has(key) and is_instance_valid(I.live[key].get("room", null)):
+-				(I.live[key].room as CoronadoShopInterior).latch_door(true, by.global_position if is_instance_valid(by) else Vector3.INF),
++			I.open_when_ready(key, by.global_position if is_instance_valid(by) else Vector3.INF),   # bugcheck: also while loading
+ 		func() -> void: I.start_door(key),      # reveal: start loading NOW
+ 		func() -> void: I.stop_load(key),       # menu closed without Open
+ 		Callable(), 2.3, Vector3(0, 0, 0.35), 2.6)
+@@ -125,9 +124,7 @@ func _public_door_use() -> void:
+ 		door_uses["pub_" + id] = DoorMenu.add(ic, at, "pub_" + id,
+ 			func(by: Node3D = null) -> void:
+ 				P.set_held(id, true)
+-				if P.live.has(id) and is_instance_valid(P.live[id].get("room", null)):
+-					var rr := P.live[id].room as CoronadoPublicRoom
+-					rr.latch_door(true, by.global_position if is_instance_valid(by) else Vector3.INF),
++				P.open_when_ready(id, by.global_position if is_instance_valid(by) else Vector3.INF),   # bugcheck: also while loading
+ 			func() -> void: P.start_door(id),
+ 			func() -> void: P.stop_load(id),
+ 			Callable(), 2.4, Vector3(0, 0, 0.6), 2.7)
+-- 
+2.43.0
+

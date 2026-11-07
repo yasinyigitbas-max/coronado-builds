@@ -1,0 +1,256 @@
+From 177ff3cb26eedada87080f0e73b91c02315f15a9 Mon Sep 17 00:00:00 2001
+From: bugcheck <bugcheck@local>
+Date: Sat, 7 Nov 2026 00:42:55 +0000
+Subject: [PATCH 01/10] Check is_instance_valid() before 'is' on possibly-freed
+ objects
+
+'x is T and is_instance_valid(x)' raises 'Left operand of is is a previously
+freed instance' when x was freed (seen in furniture_layer _trunks_abort/_pkg_off
+when a cell package is freed with a pending trunk drain: _pkg_off aborts before
+cellmerge.remove_prefix). Swap the order everywhere the pattern appears.
+---
+ map_dc/coronado/coronado_world.gd               | 2 +-
+ map_dc/coronado/furniture/furniture_layer.gd    | 4 ++--
+ map_dc/coronado/home/home_flat.gd               | 2 +-
+ map_dc/coronado/home/home_layer.gd              | 2 +-
+ map_dc/coronado/npc/talk/npc_talk.gd            | 2 +-
+ map_dc/coronado/perf/cell_pkg.gd                | 4 ++--
+ map_dc/coronado/perf/shadow_policy.gd           | 2 +-
+ map_dc/coronado/shops/interior/shop_interior.gd | 4 ++--
+ minigames/alien_dreams.gd                       | 2 +-
+ player/camera_rig.gd                            | 2 +-
+ story/intro/day2_scene.gd                       | 4 ++--
+ story/intro/flatmate_scene.gd                   | 4 ++--
+ ui/phone/phone_pull.gd                          | 2 +-
+ voice/talk_anim.gd                              | 4 ++--
+ 14 files changed, 20 insertions(+), 20 deletions(-)
+
+diff --git a/map_dc/coronado/coronado_world.gd b/map_dc/coronado/coronado_world.gd
+index 5e1b3964..2d05029b 100644
+--- a/map_dc/coronado/coronado_world.gd
++++ b/map_dc/coronado/coronado_world.gd
+@@ -719,7 +719,7 @@ func _pkg_in_flight(k: Vector2i) -> bool:
+ 	# (wants()) - a cell behind the player is not loading now, but it loads when they turn / drive that way, so its
+ 	# terrain must wait (no runtime terrain build for geometry nobody looks at, and no 8 s PKGWAIT fallback either)
+ 	if buildings.has_method(&"wants"): return not bool(buildings.call(&"wants", k))
+-	if tg is Node3D and is_instance_valid(tg) and &"r_bld" in buildings:
++	if is_instance_valid(tg) and tg is Node3D and &"r_bld" in buildings:
+ 		var c := Vector2((k.x + 0.5) * 100.0, (k.y + 0.5) * 100.0)
+ 		var tp := (tg as Node3D).global_position
+ 		if c.distance_to(Vector2(tp.x, tp.z)) > float(buildings.get(&"r_bld")) + 100.0: return true
+diff --git a/map_dc/coronado/furniture/furniture_layer.gd b/map_dc/coronado/furniture/furniture_layer.gd
+index f79bd3cc..5ac6090c 100644
+--- a/map_dc/coronado/furniture/furniture_layer.gd
++++ b/map_dc/coronado/furniture/furniture_layer.gd
+@@ -438,7 +438,7 @@ func _pkg_on(k: Vector2i, fp: Node3D) -> void:
+ 	AP.end(ap)
+ ## visual-src5: remove the trunk shape owners of an unfinished drain of this package part (ids in body meta "trunk_so")
+ func _trunks_abort(fp: Variant) -> void:
+-	if not (fp is Node3D and is_instance_valid(fp)): return
++	if not (is_instance_valid(fp) and fp is Node3D): return
+ 	var body := (fp as Node3D).get_node_or_null(^"colliders") as StaticBody3D
+ 	if body == null or body.has_meta(&"trunks"): return
+ 	for so in body.get_meta(&"trunk_so", []):
+@@ -454,7 +454,7 @@ func _pkg_off(k: Vector2i) -> void:
+ 			if job[0] != k: kept.append(job)
+ 			else: _trunks_abort(job[1])   # visual-src5: a cancelled half-drained cell must not count as done
+ 		_trunk_q = kept
+-	if fp is Node3D and is_instance_valid(fp): _brk_strip(fp)
++	if is_instance_valid(fp) and fp is Node3D: _brk_strip(fp)
+ 	if cellmerge: cellmerge.remove_prefix("furn_%d_%d/" % [k.x, k.y])
+ func _brk_strip(fp: Node3D) -> void:
+ 	var B := fp.get_node_or_null(^"breakables")
+diff --git a/map_dc/coronado/home/home_flat.gd b/map_dc/coronado/home/home_flat.gd
+index 51be84eb..2d21c395 100644
+--- a/map_dc/coronado/home/home_flat.gd
++++ b/map_dc/coronado/home/home_flat.gd
+@@ -683,7 +683,7 @@ static func swing_away(hinge: Node3D, who: Node3D) -> float:
+ 	return 1.0 if hinge.to_local(who.global_position).z >= 0.0 else -1.0
+ func _door_who(d: Dictionary) -> Node3D:
+ 	var w: Variant = d.get("who")
+-	if w is Node3D and is_instance_valid(w): return w
++	if is_instance_valid(w) and w is Node3D: return w
+ 	return get_tree().get_first_node_in_group(&"player") as Node3D if is_inside_tree() else null
+ 
+ func is_open(nm: String) -> bool: return float(doors[nm].open) > 0.5
+diff --git a/map_dc/coronado/home/home_layer.gd b/map_dc/coronado/home/home_layer.gd
+index 08c2c848..455107be 100644
+--- a/map_dc/coronado/home/home_layer.gd
++++ b/map_dc/coronado/home/home_layer.gd
+@@ -250,7 +250,7 @@ static func door_chunks(interiors: Node, c: Vector2) -> Array:
+ 	for dz in range(-1, 2):
+ 		for dx in range(-1, 2):
+ 			var v: Variant = bl.get(cc + Vector2i(dx, dz))
+-			if v is Node and is_instance_valid(v): out.append(v)
++			if is_instance_valid(v) and v is Node: out.append(v)
+ 	return out
+ 
+ func _recut() -> void:
+diff --git a/map_dc/coronado/npc/talk/npc_talk.gd b/map_dc/coronado/npc/talk/npc_talk.gd
+index d6244234..fe114498 100644
+--- a/map_dc/coronado/npc/talk/npc_talk.gd
++++ b/map_dc/coronado/npc/talk/npc_talk.gd
+@@ -128,7 +128,7 @@ func ensure_store() -> CoronadoNpcMemory:
+ 
+ func store() -> CoronadoNpcMemory:
+ 	var s = get_meta(&"store", null)
+-	if s is CoronadoNpcMemory and is_instance_valid(s): return s
++	if is_instance_valid(s) and s is CoronadoNpcMemory: return s
+ 	s = ensure_store()
+ 	if s == null:
+ 		s = CoronadoNpcMemory.new(); set_meta(&"store", s)
+diff --git a/map_dc/coronado/perf/cell_pkg.gd b/map_dc/coronado/perf/cell_pkg.gd
+index cc26e59d..c6f3363c 100644
+--- a/map_dc/coronado/perf/cell_pkg.gd
++++ b/map_dc/coronado/perf/cell_pkg.gd
+@@ -147,7 +147,7 @@ static func has(k: Vector2i) -> bool: return not off and _idx.has(key_of(k))
+ static func entry(k: Vector2i) -> Dictionary: return _idx.get(key_of(k), {})
+ static func node(k: Vector2i) -> Node3D:
+ 	var n: Variant = live.get(k)
+-	return n if n is Node3D and is_instance_valid(n) else null
++	return n if is_instance_valid(n) and n is Node3D else null
+ static func part(k: Vector2i, nm: StringName) -> Node:
+ 	var n := node(k)
+ 	if n == null: return null
+@@ -327,7 +327,7 @@ static func sync_load(path: String) -> void:
+ 	PP.begin(&"pkg_sync_load_headless"); ResourceLoader.load(path); PP.end(&"pkg_sync_load_headless")
+ static func terr_ready(k: Vector2i) -> bool:
+ 	var t: Variant = terr.get(k)
+-	return t is Node3D and is_instance_valid(t) and (t as Node3D).is_inside_tree()
++	return is_instance_valid(t) and t is Node3D and (t as Node3D).is_inside_tree()
+ static func terr_show(k: Vector2i, lod: int) -> bool:
+ 	var t: Variant = terr.get(k)
+ 	if not (t is Node3D) or not is_instance_valid(t) or not (t as Node3D).is_inside_tree(): return false
+diff --git a/map_dc/coronado/perf/shadow_policy.gd b/map_dc/coronado/perf/shadow_policy.gd
+index 48868a53..b39b4d1a 100644
+--- a/map_dc/coronado/perf/shadow_policy.gd
++++ b/map_dc/coronado/perf/shadow_policy.gd
+@@ -161,7 +161,7 @@ func _set_cast(g: GeometryInstance3D, on: bool) -> void:
+ func _refresh_near() -> void:
+ 	# Re-evaluate distance-gated roles without a whole-world scan: only tagged near candidates + player.
+ 	for g in get_tree().get_nodes_in_group(&"shadow_near_candidate"):
+-		if g is GeometryInstance3D and is_instance_valid(g):
++		if is_instance_valid(g) and g is GeometryInstance3D:
+ 			var role: StringName = g.get_meta(META_ROLE, ROLE_DENY)
+ 			_set_cast(g, _allowed(role, g))
+ 	for g in get_tree().get_nodes_in_group(&"player"):
+diff --git a/map_dc/coronado/shops/interior/shop_interior.gd b/map_dc/coronado/shops/interior/shop_interior.gd
+index 15ad5fa3..dfbd5dd8 100644
+--- a/map_dc/coronado/shops/interior/shop_interior.gd
++++ b/map_dc/coronado/shops/interior/shop_interior.gd
+@@ -1065,12 +1065,12 @@ func pkg_state(root: Node) -> Dictionary:
+ 	var pr: Array = []
+ 	for q: Dictionary in props:
+ 		var d := q.duplicate()
+-		d.node = get_path_to(q.node) if q.get("node") is Node and is_instance_valid(q.node) else NodePath()
++		d.node = get_path_to(q.node) if is_instance_valid(q.get("node")) and q.get("node") is Node else NodePath()
+ 		pr.append(d)
+ 	var dp: Array = []
+ 	for dn: Node3D in door_panels:
+ 		var cs = dn.get_meta(&"cs", null)
+-		dp.append([get_path_to(dn), get_path_to(cs) if cs is Node and is_instance_valid(cs) else NodePath()])
++		dp.append([get_path_to(dn), get_path_to(cs) if is_instance_valid(cs) and cs is Node else NodePath()])
+ 	return {"front": front, "shop": shop, "set_name": set_name, "shallow": shallow, "W": W, "D": D, "door_x": door_x, "cx": cx,
+ 		"counter_side": counter_side, "frame_xf": frame_xf, "buy": bp, "props": pr, "doors": dp, "goods_cats": goods_cats,
+ 		"goods_source": goods_source, "extras": extras, "merged_saved": merged_saved, "prebaked": prebaked, "cell_saved": cell_saved,
+diff --git a/minigames/alien_dreams.gd b/minigames/alien_dreams.gd
+index a9a83c8f..5c065800 100644
+--- a/minigames/alien_dreams.gd
++++ b/minigames/alien_dreams.gd
+@@ -105,7 +105,7 @@ func in_flat() -> bool:
+ 	if pl == null: return false
+ 	for h in get_tree().root.find_children("Home", "Node3D", true, false):
+ 		var f = h.get(&"flat")
+-		if f is Node3D and is_instance_valid(f):
++		if is_instance_valid(f) and f is Node3D:
+ 			var lp: Vector3 = (f as Node3D).to_local(pl.global_position)
+ 			return CoronadoHomeFlat.inside_flat(lp.x, -lp.z) and lp.y < CoronadoHomeFlat.CEIL + 0.5
+ 	return true   # no flat built in (tests / other maps): the old at_home() radius alone decides
+diff --git a/player/camera_rig.gd b/player/camera_rig.gd
+index fabfddcf..a96ce871 100644
+--- a/player/camera_rig.gd
++++ b/player/camera_rig.gd
+@@ -454,7 +454,7 @@ func _eye_clear() -> void:
+ ## Eye from the player's FPBody (player-local), INF if there is no head bone.
+ func _head_eye(p: Node) -> Vector3:
+ 	var fb = p.get(&"fp_body") if p else null
+-	if fb is FPBody and is_instance_valid(fb): return (fb as FPBody).eye_local
++	if is_instance_valid(fb) and fb is FPBody: return (fb as FPBody).eye_local
+ 	return Vector3.INF
+ 
+ func _look_ahead_goal() -> Vector3:
+diff --git a/story/intro/day2_scene.gd b/story/intro/day2_scene.gd
+index 4d7d3a43..6a7f165b 100644
+--- a/story/intro/day2_scene.gd
++++ b/story/intro/day2_scene.gd
+@@ -235,14 +235,14 @@ func _look_at_thing(t: Variant) -> void:
+ 	if cam == null: return
+ 	if fp_active():   # overseer-dc-fps: FPCam glances at the thing for the line naming it, then back to her face
+ 		var tp := Vector3.INF
+-		if t is Node3D and is_instance_valid(t): tp = item_centre(t as Node3D)
++		if is_instance_valid(t) and t is Node3D: tp = item_centre(t as Node3D)
+ 		elif t is String and rooms().has(t):
+ 			var rb: Array = rooms()[t]; tp = at((rb[0] + rb[1]) * 0.5, (rb[2] + rb[3]) * 0.5, 1.2)
+ 		if tp != Vector3.INF: _clear_view(tp, 0.4); fp_glance(tp, LINE_GLANCE_S)   # blue-dc-fps: synced to the line
+ 		return
+ 	# overseer-dc-camclean: no free shot camera; outside a face hold FPCam just turns the eyes to the thing
+ 	var p := Vector3.INF
+-	if t is Node3D and is_instance_valid(t): p = item_centre(t as Node3D)
++	if is_instance_valid(t) and t is Node3D: p = item_centre(t as Node3D)
+ 	elif t is String and rooms().has(t):
+ 		var b: Array = rooms()[t]; p = at((b[0] + b[1]) * 0.5, (b[2] + b[3]) * 0.5, 1.2)
+ 	if p != Vector3.INF: FpsCues.fpcam().call(&"pan_to_point", p, -1.0, LINE_GLANCE_S)
+diff --git a/story/intro/flatmate_scene.gd b/story/intro/flatmate_scene.gd
+index 8b7e75cc..ce30221c 100644
+--- a/story/intro/flatmate_scene.gd
++++ b/story/intro/flatmate_scene.gd
+@@ -1279,7 +1279,7 @@ func _process_pp_flatmate_scene(_dt: float) -> void:
+ 	# all over town: only the nearest few metres drawn, no roads/buildings beyond. Now: no live flat = outside.
+ 	if (flat == null or not is_instance_valid(flat)) and home and is_instance_valid(home):
+ 		var hf: Variant = home.get(&"flat")
+-		if hf is Node3D and is_instance_valid(hf): flat = hf   # re-streamed flat (home rebuilt it on the way back)
++		if is_instance_valid(hf) and hf is Node3D: flat = hf   # re-streamed flat (home rebuilt it on the way back)
+ 	var live := pl != null and flat != null and is_instance_valid(flat)
+ 	var room := _room_of(pl) if live else ""
+ 	var inside_raw := room != "" and not _near_door(pl)
+@@ -1319,6 +1319,6 @@ func _near_door(pl: Node3D) -> bool:
+ func _room_of(pl: Node3D) -> String:
+ 	var p := pl.global_position
+ 	var st = pl.get(&"seat")
+-	if pl.get(&"seated") and st is Node3D and is_instance_valid(st) and flat.is_ancestor_of(st): p = (st as Node3D).global_position
++	if pl.get(&"seated") and is_instance_valid(st) and st is Node3D and flat.is_ancestor_of(st): p = (st as Node3D).global_position
+ 	var lp := flat.global_transform.affine_inverse() * p
+ 	return str(flat.call(&"room_at", lp.x, -lp.z))
+diff --git a/ui/phone/phone_pull.gd b/ui/phone/phone_pull.gd
+index 9193c36d..61a4efa7 100644
+--- a/ui/phone/phone_pull.gd
++++ b/ui/phone/phone_pull.gd
+@@ -292,7 +292,7 @@ func _acquire() -> bool:
+ 	_player = get_tree().get_first_node_in_group(&"player") as Node3D
+ 	_rig = _player.get_node(^"CamYaw")
+ 	var chase = _rig.get(&"chase_car")
+-	in_car = chase is Node3D and is_instance_valid(chase)
++	in_car = is_instance_valid(chase) and chase is Node3D
+ 	_car = chase if in_car else null
+ 	# red-dc-fps: first person (black-dc-fps rig) - the camera stays the player's eyes (FPCam.camera(), not acquired);
+ 	# the phone is raised into the view in front of it, on foot and in a car alike.
+diff --git a/voice/talk_anim.gd b/voice/talk_anim.gd
+index 54059d0b..3fe032a1 100644
+--- a/voice/talk_anim.gd
++++ b/voice/talk_anim.gd
+@@ -100,10 +100,10 @@ static func skeleton_of(body: Node) -> Skeleton3D:
+ 	if body == null: return null
+ 	if body is Skeleton3D: return body
+ 	var s = body.get(&"skeleton") if &"skeleton" in body else null
+-	if s is Skeleton3D and is_instance_valid(s): return s
++	if is_instance_valid(s) and s is Skeleton3D: return s
+ 	for c in body.get_children():   # FaceTarget / root wrappers around a HeroModel
+ 		s = c.get(&"skeleton") if &"skeleton" in c else null
+-		if s is Skeleton3D and is_instance_valid(s): return s
++		if is_instance_valid(s) and s is Skeleton3D: return s
+ 	var f := body.find_children("*", "Skeleton3D", true, false)
+ 	return f[0] if f.size() > 0 else null
+ 
+-- 
+2.43.0
+

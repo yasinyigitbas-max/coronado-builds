@@ -1,0 +1,46 @@
+From 529c38dbb42c353272e04e31557150de2967c16e Mon Sep 17 00:00:00 2001
+From: bugcheck <bugcheck@local>
+Date: Sat, 7 Nov 2026 03:04:09 +0000
+Subject: [PATCH 10/10] Traffic lanes: no lane change near a lane's start; lane
+ test ignores intentional offsets
+
+test_traffic: 1 collision at a junction exit (a car may land just behind the box where
+other turns still sweep) -> lane changes keep LC_MIN_END + body from BOTH lane ends.
+cars_on_lanes now skips cars with |lat| >= 0.05 (mid lane change / pull-over, offset
+on purpose). NOTE: test_traffic re-run with this commit still pending.
+---
+ tests/traffic/test_traffic.gd | 3 ++-
+ traffic/traffic_sim.gd        | 3 ++-
+ 2 files changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/tests/traffic/test_traffic.gd b/tests/traffic/test_traffic.gd
+index d274a5f1..ccf68790 100644
+--- a/tests/traffic/test_traffic.gd
++++ b/tests/traffic/test_traffic.gd
+@@ -56,7 +56,8 @@ func _init() -> void:
+ 			for c in S.cars:
+ 				if not c.bus.is_empty(): nb += 1
+ 				var P: Dictionary = S.piece(c.path[c.pi])
+-				if P.kind == "lane" and c.s > c.len * 0.5 + 1.0 and c.s < P.len - c.len * 0.5 - 1.0 and c.bus.is_empty():
++				# bugcheck traffic-lanes: a car mid lane change / pulling over is offset ON PURPOSE (c.lat slides to 0)
++				if P.kind == "lane" and c.s > c.len * 0.5 + 1.0 and c.s < P.len - c.len * 0.5 - 1.0 and c.bus.is_empty() and absf(float(c.lat)) < 0.05:
+ 					var q: Vector3 = TrafficSim.sample(P, c.s)[0]
+ 					var dv := Vector2(q.x - c.pos.x, q.z - c.pos.z).length()
+ 					# axle-chord sagitta: a rigid car with both axles on the lane line has its centre this far off the
+diff --git a/traffic/traffic_sim.gd b/traffic/traffic_sim.gd
+index b036fc61..d4404a39 100644
+--- a/traffic/traffic_sim.gd
++++ b/traffic/traffic_sim.gd
+@@ -922,7 +922,8 @@ func _is_rightmost(key: String) -> bool:
+ 
+ func _lc_gap_ok(car: Dictionary, to_key: String, s2: float) -> bool:
+ 	var P2 := piece(to_key)
+-	if s2 < car.len or s2 > float(P2.len) - (car.len + LC_MIN_END): return false
++	# away from both ends: not into the box behind (junction exit, other turns still sweep there) nor the one ahead
++	if s2 < car.len + LC_MIN_END or s2 > float(P2.len) - (car.len + LC_MIN_END): return false
+ 	for o in _occ.get(to_key, []):
+ 		if o == car: continue
+ 		var ds: float = float(o.s) - s2
+-- 
+2.43.0
+
