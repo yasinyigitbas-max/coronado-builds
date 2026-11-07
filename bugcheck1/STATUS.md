@@ -125,3 +125,10 @@ junction rework (key bug for cars + one-booking rule) and the turn-curve fix.
   crashes (cloud, opengl3) -> not used. Documented in PERF_AUDIT.md.
 - 0018 breakables without GPU read-back: identical arrays (0 mismatches), test_breakables / tree_col / save PASS.
 - Next in queue: far / mid building views matching the near look (Yasin, after perf).
+
+## Far / mid buildings (Yasin, after perf) → 0019 (step 1 of 2)
+- Cause: full block mesh drawn only to 70 m; 70-300 m = LOD1 oriented boxes (+ kit details floating on them), 270 m+ =
+  LOD2 chunk silhouettes (blobs), flat baked colours.
+- 0019 (runtime, no bake): full mesh to 300 m, boxes 300-730 m, silhouettes from 670 m. Render cost unchanged / lower.
+- Step 2 (needs a building re-bake, not started): regenerate the 300 m+ boxes / silhouettes from the real footprints
+  with the near wall colours (per-building simplified prisms instead of chunk blobs).

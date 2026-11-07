@@ -31,7 +31,7 @@ From `project/`, apply every file in `bugcheck1/patches/` **in number order** wi
 git am /path/to/bugcheck1/patches/0001-*.patch
 git am /path/to/bugcheck1/patches/0002-*.patch
 ...
-git am /path/to/bugcheck1/patches/0018-*.patch
+git am /path/to/bugcheck1/patches/0019-*.patch
 ```
 
 | Patch | What it fixes | Files |
@@ -54,6 +54,7 @@ git am /path/to/bugcheck1/patches/0018-*.patch
 | 0016 | Perf: fuel station built in 4 stages 0.5 s apart (phone 71-74 ms frame) | vehicles/fuel/fuel_stations.gd |
 | 0017 | Shops: the street occluder behind an open shop's front is left out while its room is loaded (shop looked empty from the door) | shops/shops_layer.gd, shops/interior/interiors_layer.gd, shops/interior/shop_interior.gd, tests/coronado_layers.gd |
 | 0018 | Perf: breakable props merged from cached mesh data (no GPU read-back per prop: 58 ms at spawn, up to 15 ms mid-drive) | world_fx/breakables.gd, furniture/furniture_layer.gd |
+| 0019 | Buildings: full block mesh drawn to 300 m, simplified boxes only from 300 m (buildings no longer change shape at 70 m) | perf/lod_bands.gd, buildings/coronado_buildings.gd |
 
 After applying all of them, run the import again (`--import`) so the new script gets its `.uid` / cache entries.
 
@@ -67,7 +68,7 @@ After applying all of them, run the import again (`--import`) so the new script 
   **"Coronado bugcheck1: bug fixes + smarter traffic (experimental)"**.
 
 ## 4. Re-bake ONLY the changed parts, then export
-Only 0008 / 0011 change baked content (street furniture rows of 18 cells). All other patches (0001-0007, 0009, 0010, 0012-0018) are runtime code only.
+Only 0008 / 0011 change baked content (street furniture rows of 18 cells). All other patches (0001-0007, 0009, 0010, 0012-0019) are runtime code only.
 Run these steps from `project/` instead of the whole of `export_baked.sh` (same commands as in that script):
 
 1. Furniture chunk merges + static furniture cells (these tools have no partial mode; they rewrite unchanged chunks
@@ -126,6 +127,8 @@ Install over the existing app (same signer). Things to look at:
 6. Send logs: the zip holds only the last 2 sessions' perf files.
 7. Compare frame times with the previous actprobe1 run (same route): the tree fix (0006) should lower draw calls;
    0015 / 0016 should remove most > 50 ms frames while driving (block activation, fuel station).
+9. Drive towards downtown from 300 m: buildings keep their shape and roof as you approach (0019); the switch to
+   simple boxes now happens at 300 m instead of 70 m.
 8. Open Crownado Beach Coffee (or any shop) and look in from the door: the counter, machines, tables and staff are
    visible before you step in (0017).
 

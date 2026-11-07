@@ -1,0 +1,87 @@
+From 42e49651c088753a4cf5732a85f7b60ef381aec3 Mon Sep 17 00:00:00 2001
+From: bugcheck <bugcheck@local>
+Date: Sat, 7 Nov 2026 12:30:27 +0000
+Subject: [PATCH] Buildings: full block mesh drawn to 300 m, boxes only from
+ 300 m (mid view matches near)
+
+Yasin 7 Nov: far / mid buildings look too different from near (shapes change, buildings
+replaced on approach). The full block mesh (Block_*_LOD0: real footprint, roof, facade
+shader) was drawn to 70 m (lod_bands FULL); 70-300 m showed blue's LOD1 oriented boxes with
+the near facade kit's cornices / awnings / eaves floating on them, and LOD2 chunk
+silhouettes from 270 m. Now the full mesh draws to 300 m (lod_bands.NEAR_BLD_END, Medium /
+Low still scale it), the far-area LOD1 boxes run 300-730 m and LOD2 starts at 670 m (the
+authored bands). No re-bake: the full meshes were already in every package out to 900 m.
+Rendered check (xvfb opengl3, 3 shop facades from 40 / 150 / 450 m): 150-300 m buildings
+keep their real shapes and roofs. Cost, 24 wide views at 3 downtown spots: draws 218 -> 214
+(street) / 261 -> 250 (raised), triangles 308k -> 300k / 366k -> 346k.
+---
+ .../coronado/buildings/coronado_buildings.gd  |  9 ++++++--
+ map_dc/coronado/perf/lod_bands.gd             | 22 +++++++++++++++++++
+ 2 files changed, 29 insertions(+), 2 deletions(-)
+
+diff --git a/map_dc/coronado/buildings/coronado_buildings.gd b/map_dc/coronado/buildings/coronado_buildings.gd
+index 9be1cb09..54582d3d 100644
+--- a/map_dc/coronado/buildings/coronado_buildings.gd
++++ b/map_dc/coronado/buildings/coronado_buildings.gd
+@@ -35,8 +35,13 @@ var tick := 0
+ var loaded := {}            # block visibility centre key -> building chunk node (only blocks of loaded chunks are drawn)
+ 
+ ## lod bands (perf/lod_bands.gd): far blocks baked LOD1 220..730, LOD2 670..3030 (30 m overlap) -> LOD1 100..330, LOD2 270..3030
+-static func _fb(x: float) -> float: return 100.0 if x > 100.0 and x <= 260.0 else (270.0 if x > 600.0 and x <= 700.0 else x)
+-static func _fe(x: float) -> float: return 330.0 if x > 600.0 and x <= 760.0 else x
++## bugcheck1 0019: the full block mesh now draws to 300 m (lod_bands.NEAR_BLD_END), so the boxes start there and keep
++## their authored range (LOD1 to 730 m, LOD2 from 670 m) instead of 100-330 / 270+ (with --nolodbands: as baked)
++static func _fb(x: float) -> float:
++	if not LB_ON: return x
++	return 300.0 if x > 100.0 and x <= 260.0 else x
++static func _fe(x: float) -> float: return x
++static var LB_ON: bool = not "--nolodbands" in OS.get_cmdline_user_args()
+ static func ckey(c: Vector3) -> Vector3i: return Vector3i(roundi(c.x * 4.0), roundi(c.y * 4.0), roundi(c.z * 4.0))
+ 
+ func _ready() -> void:
+diff --git a/map_dc/coronado/perf/lod_bands.gd b/map_dc/coronado/perf/lod_bands.gd
+index 931bc82c..d15efe30 100644
+--- a/map_dc/coronado/perf/lod_bands.gd
++++ b/map_dc/coronado/perf/lod_bands.gd
+@@ -42,9 +42,30 @@ func _pass(r: Node) -> void:
+ 	for k in by: _group(by[k])
+ 
+ func _do_one(g: GeometryInstance3D) -> void:
++	if _near_bld(g): return
+ 	if g.visibility_range_begin > 0.0: _apply(g)
+ 	else: _cap_small(g)
+ 
++## bugcheck1 0019 (Yasin 7 Nov: "far mid and near are too different, buildings suddenly change shape or are replaced"):
++## a building block's full mesh (Block_*_LOD0: real footprint, roof and the facade shader) was drawn only to FULL (70 m);
++## 70-300 m showed blue's LOD1 oriented boxes with the near facade kit's cornices / awnings / eaves floating on them, and
++## past 300 m the LOD2 chunk silhouettes. The full mesh now draws to NEAR_BLD_END, and the far areas start their boxes
++## there (coronado_buildings._fb / _fe: LOD1 300-730 m, LOD2 from 670 m, the authored bands). Medium / Low still scale
++## it through vis_base. --nolodbands keeps the old ranges.
++const NEAR_BLD_END := 300.0
++func _near_bld(g: GeometryInstance3D) -> bool:
++	var nm := String(g.name)
++	if not (nm.begins_with("Block_") and nm.ends_with("_LOD0")): return false
++	if g.has_meta(&"lb_near"): return true
++	g.set_meta(&"lb_near", true); g.set_meta(&"lb_done", true)
++	var e: float = float(g.get_meta(&"vis_base", g.visibility_range_end))
++	var f := g.visibility_range_end / e if g.has_meta(&"vis_base") and e > 0.0 else 1.0
++	if g.has_meta(&"vis_base"): g.set_meta(&"vis_base", NEAR_BLD_END)
++	g.visibility_range_begin = 0.0
++	g.visibility_range_end = NEAR_BLD_END * f
++	stats["near_bld"] = int(stats.get("near_bld", 0)) + 1
++	return true
++
+ ## Small single-level things (props, people, furniture, trees' clutter, parked cars) have no basic far shape:
+ ## hide past SMALL_FAR at High (Medium/Low keep scaling via vis_base). Never touches 0-100 m.
+ const SMALL_FAR := 220.0   # worker-b17int perf 7 (t208u): was 300 (gray-dc-fixes8: was 500)
+@@ -80,6 +101,7 @@ func _group(list: Array) -> void:
+ 	for g in list: if g is GeometryInstance3D and _base_b(g) > 0.0: begins[snappedf(_base_b(g), 0.5)] = true
+ 	for g in list:
+ 		if not g is GeometryInstance3D: continue
++		if _near_bld(g): continue
+ 		if _base_b(g) > 0.0 or (_base_e(g) > 0.0 and begins.has(snappedf(_base_e(g), 0.5))): _apply(g)
+ 		else: _cap_small(g)
+ 
+-- 
+2.43.0
+
