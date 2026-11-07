@@ -127,10 +127,10 @@ Install over the existing app (same signer). Things to look at:
 6. Send logs: the zip holds only the last 2 sessions' perf files.
 7. Compare frame times with the previous actprobe1 run (same route): the tree fix (0006) should lower draw calls;
    0015 / 0016 should remove most > 50 ms frames while driving (block activation, fuel station).
-9. Drive towards downtown from 300 m: buildings keep their shape and roof as you approach (0019); the switch to
-   simple boxes now happens at 300 m instead of 70 m.
 8. Open Crownado Beach Coffee (or any shop) and look in from the door: the counter, machines, tables and staff are
    visible before you step in (0017).
+9. Drive towards downtown from 300 m: buildings keep their shape and roof as you approach (0019); the switch to
+   simple boxes now happens at 300 m instead of 70 m.
 
 ## 7. Not in this build (reported, not fixed)
 - 4 NPC lines without voice clips (barista greet / no_money, passer-by cafe / beach): need recordings.
