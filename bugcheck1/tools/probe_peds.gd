@@ -27,7 +27,7 @@ func _run() -> void:
 	for spot in SPOTS:
 		pl.global_position = Vector3(spot[1], CoronadoTerrain.height_at(spot[1], spot[2]) + 0.5, spot[2])
 		await _secs(20.0)
-		var st := {"crowd": {"n": 0, "road": 0, "road_pave": 0, "idle_road": 0, "idle_long": 0, "wait_road": 0}, "sim": {"n": 0, "road": 0, "idle_road": 0, "idle_long": 0, "cross_stall": 0}}
+		var st := {"crowd": {"n": 0, "road": 0, "road_pave": 0, "idle_road": 0, "idle_long": 0, "wait_road": 0}, "sim": {"n": 0, "road": 0, "road_walk": 0, "road_wait": 0, "road_cross": 0, "road_turn": 0, "idle_road": 0, "idle_long": 0, "cross_stall": 0}}
 		var still := {}   # id -> [pos, seconds]
 		var t := 0.0; var worst := 0.0; var worst_at := ""
 		while t < DUR:
@@ -55,6 +55,8 @@ func _run() -> void:
 					st.sim.n += 1
 					if on:
 						st.sim.road += 1
+						var sk := "road_" + str(pd.state).replace("wait_cross", "wait")
+						if st.sim.has(sk): st.sim[sk] += 1
 						if float(e[1]) > 3.0: st.sim.idle_road += 1
 						if str(pd.state) == "cross" and float(e[1]) > 3.0: st.sim.cross_stall += 1
 						if float(e[1]) > worst: worst = e[1]; worst_at = "sim state=%s at %s" % [pd.state, p]

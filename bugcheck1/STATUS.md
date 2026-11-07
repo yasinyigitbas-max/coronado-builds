@@ -73,3 +73,14 @@ Audit (tools/probe_peds.gd, 2 min per spot, "on road" = inside a drivable road's
   del / Amber (crossing segment starts inside the road?), to check.
 NEXT: refine the audit (split crossing vs walking vs waiting), confirm the WIP patch, then crowd W_WAIT, then commit as 0012.
 WIP patch: bugcheck1/patches/WIP-0012-pedestrians.patch (NOT for the build agent yet).
+
+## C (pedestrians) ~05:40 UTC: patch 0012 committed (traffic-sim walkers)
+Walking on the road 1327/485/235/138 -> 1/19/0/4 (Orange&4th / Hotel del / Amber / residential); waiting in the road
+469/126 -> 0; standing still on the road 316/57 -> 0. Root cause = float vs int node keys in traffic_sim.gd (_node_all).
+**Found for CARS too (not fixed, separate task, ~half a day):** the same key bug makes every car-lane junction set-back 0,
+so lanes run to the junction centre and turns pivot there (likely the real cause of "cars can't turn corners").
+Fixing it for cars deadlocks scripted rides (a car in a box can't book the next box, one booking per car) -> needs the
+junction-booking rules reworked; ask Yasin.
+NEXT: (1) re-run traffic/ride tests with final 0012; (2) crowd layer (npc/crowd_layer.gd): agents WAIT at signals already
+inside the road at Hotel del (crossing segment start inside the carriageway?): probe probes/probe_crowdx.gd was killed by a
+worker restart; re-run it; (3) then D (CPU perf audit).

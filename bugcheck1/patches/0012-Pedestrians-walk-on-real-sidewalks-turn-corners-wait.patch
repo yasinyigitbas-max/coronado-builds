@@ -1,0 +1,219 @@
+From 91d141f9a59ee72fc071272e1e043e87a9740943 Mon Sep 17 00:00:00 2001
+From: bugcheck <bugcheck@local>
+Date: Sat, 7 Nov 2026 05:50:33 +0000
+Subject: [PATCH] Pedestrians: walk on real sidewalks, turn corners, wait at
+ the kerb
+
+Audit (tools/probe_peds.gd, 2 min x 4 spots): walkers walked / waited / stood on the
+carriageway (Orange & 4th: 1327 walk-on-road samples; Amber: 469 waiting in the road,
+316 standing still there, up to 33 s).
+- Root cause: the junction table _node_all was keyed by float node ids (JSON) while
+  every lookup passes an int -> every junction set-back was 0 and _ped_turn found no
+  street at any corner (walkers turned back = 'can't decide where to go'). Walkers now
+  use an int-keyed copy (_node_all_i / _ped_setback). Cars keep the old table: fixing
+  it for cars deadlocks scripted rides (junction booking tuned to it) -> separate task.
+- Corners at the cross street's kerb (_corner_s = set-back - 1.5 m), not 4 m from the node.
+- Street pieces with < 4 m of sidewalk outside their junctions are not walked.
+- A sidewalk side inside another carriageway (inner side of a dual carriageway) is never
+  used (_ped_side_ok); corner turns that cut across a road > 7 m wide are rejected
+  (_ped_walk_crosses_road), alley / driveway mouths are walked across.
+After: walking on the road 1327/485/235/138 -> 1/19/0/4; waiting in the road 469/126 -> 0;
+standing still on the road 316/57 -> 0. test_traffic, cityride, taxi, hitchhike,
+scripted, positions pass (before the side / turn-cut additions; re-run pending).
+---
+ traffic/traffic_sim.gd | 123 +++++++++++++++++++++++++++++++----------
+ 1 file changed, 93 insertions(+), 30 deletions(-)
+
+diff --git a/traffic/traffic_sim.gd b/traffic/traffic_sim.gd
+index d4404a39..ee53e567 100644
+--- a/traffic/traffic_sim.gd
++++ b/traffic/traffic_sim.gd
+@@ -43,6 +43,7 @@ var _edge_cross := {}           # edge id -> Array of [s, control]
+ var _node_edges := {}           # node -> Array of edge ids (pedestrian network, coronado public roads)
+ var _ped_edges: Array = []
+ var _node_all := {}             # node -> Array of edge ids (all edges), for junction set-backs
++var _node_all_i := {}           # bugcheck peds: same, int keys (walkers' set-backs / corners)
+ var _drive_ok := {}
+ var focus := Vector3.ZERO       # player / camera position
+ var player_pos := Vector3(1e9, 0, 1e9)
+@@ -93,6 +94,7 @@ func setup(roads: RoadsAPI) -> void:
+ 	hour_share = d.hour_share
+ 	for k in d.edges: edge_aadt[int(k)] = float(d.edges[k].aadt)
+ 	transit = JSON.parse_string(FileAccess.get_file_as_string(TRANSIT))
++	var ped_cand: Array = []
+ 	for i in R.edges.size():
+ 		var e: Dictionary = R.edges[i]
+ 		var acc = e.get("access")
+@@ -101,11 +103,25 @@ func setup(roads: RoadsAPI) -> void:
+ 		for n in [e.a, e.b]:
+ 			if not _node_all.has(n): _node_all[n] = []
+ 			_node_all[n].append(i)
+-		if pub and e.hw in PED_HW and float(e.length) > 6.0:
+-			_ped_edges.append(i)
+-			for n in [e.a, e.b]:
+-				if not _node_edges.has(n): _node_edges[n] = []
+-				_node_edges[n].append(i)
++		# bugcheck peds: the same junction table with INT keys. JSON node ids are floats and every lookup (setback(),
++		# _ped_turn) passes an int, so _node_all never matched: every junction set-back was 0 and walkers found no street
++		# to turn into at any corner (they turned back). Cars keep the old table (their junction logic is tuned to it;
++		# fixing it for cars deadlocks scripted rides, see bugcheck1/STATUS.md), walkers use this one.
++		for n in [int(e.a), int(e.b)]:
++			if not _node_all_i.has(n): _node_all_i[n] = []
++			_node_all_i[n].append(i)
++		if pub and e.hw in PED_HW and float(e.length) > 6.0: ped_cand.append(i)
++	# bugcheck peds: a street piece that lies (almost) entirely inside its junctions (the short links between the two
++	# halves of 4th St / Amber Ave / C Ave ...) has no sidewalk: walkers sent along it strolled through the junction box
++	# (37 of 52 on-road walkers at Orange & 4th). Only pieces with >= PED_MIN_WALK m left between the junction
++	# set-backs (the cross streets' kerbs) are part of the walker network.
++	for i in ped_cand:
++		var e: Dictionary = R.edges[i]
++		if float(e.length) - _ped_setback(i, int(e.a)) - _ped_setback(i, int(e.b)) < PED_MIN_WALK: continue
++		_ped_edges.append(i)
++		for n in [int(e.a), int(e.b)]:
++			if not _node_edges.has(n): _node_edges[n] = []
++			_node_edges[n].append(i)
+ 	for c in R.controls:
+ 		if c.kind != "crossing" or not c.get("on_road", false): continue
+ 		var rd := R.road_at(c.pos[0], c.pos[2], 6.0)
+@@ -144,8 +160,11 @@ static func _mk_piece(key: String, pts: PackedVector3Array) -> Dictionary:
+ 
+ ## Lane graph lanes run node-centre to node-centre; at real junctions (3+ edges, or 2 edges at an angle) the lane
+ ## is cut back to the junction mouth (other roads' half width + 1 m) and a connector curve crosses the junction box.
+-func setback(eid: int, node: int) -> float:
+-	var lst: Array = _node_all.get(node, [])
++func setback(eid: int, node: int) -> float: return _setback_in(_node_all, eid, node)
++## bugcheck peds: set-back from the int-keyed table (the real junction size)
++func _ped_setback(eid: int, node: int) -> float: return _setback_in(_node_all_i, eid, node)
++func _setback_in(tab: Dictionary, eid: int, node: int) -> float:
++	var lst: Array = tab.get(node, [])
+ 	if lst.size() <= 1: return 0.0
+ 	var e: Dictionary = R.edges[eid]
+ 	if lst.size() == 2:
+@@ -1302,7 +1321,9 @@ func _step_ped(pd: Dictionary, dt: float) -> void:
+ 						pd.state = "wait_cross"; pd.xc = int(cc[1].id); pd.s = sc; pd.wait = 0.0
+ 						pd.xsig = cc[1].tags.get("crossing", "") == "traffic_signals"; pd.xnode = -1
+ 			var end_s := 0.0 if pd.dirn < 0 else float(P.len)
+-			var cz: float = minf(4.0, float(P.len) * 0.3)   # corner zone: on a short edge both 4 m zones overlapped -> flip every frame, frozen walker
++			# bugcheck peds: the corner is where the CROSS street's kerb is (junction set-back), not a flat 4 m from the node
++			# centre: 4 m is inside a 10-14 m wide cross street, so walkers walked / waited / turned on the carriageway
++			var cz: float = minf(_corner_s(pd.edge, int(e.b) if pd.dirn > 0 else int(e.a)), float(P.len) * 0.3)
+ 			if (pd.dirn > 0 and pd.s >= P.len - cz) or (pd.dirn < 0 and pd.s <= cz):
+ 				if pd.state == "walk": _ped_at_corner(pd)
+ 		"wait_cross":
+@@ -1376,6 +1397,41 @@ func _in_car(p: Vector3, m: float, ahead_s := 0.0, stopped_tight := false) -> bo
+ func _face(pd: Dictionary, d: Vector3) -> void:
+ 	if Vector2(d.x, d.z).length() > 1e-4: pd.yaw = atan2(d.x, d.z)
+ 
++const PED_MIN_WALK := 4.0   ## m of real sidewalk a street piece needs outside its junctions to be walked
++## bugcheck peds: is this side of the street piece a real sidewalk? Not when its walking line lies inside ANOTHER
++## drivable road (the inner side of a dual-carriageway piece = median / opposite carriageway). Cached per piece + side.
++var _side_ok_cache := {}
++func _ped_side_ok(eid: int, side: int) -> bool:
++	var k := eid * 2 + (1 if side > 0 else 0)
++	if _side_ok_cache.has(k): return _side_ok_cache[k]
++	var e: Dictionary = R.edges[eid]; var L: float = edge_piece(eid).len
++	var ok := true
++	for f in [0.25, 0.5, 0.75]:
++		var q := ped_pos({"edge": eid, "s": L * f, "lat": _ped_side_off(e, side)})
++		var r := R.road_at(q.x, q.z, 25.0)
++		if not r.is_empty() and int(r.edge) != eid and _drive_ok.get(int(r.edge), false) and float(r.dist) < float(r.get("width", 0.0)) * 0.5 - 0.3:
++			ok = false; break
++	_side_ok_cache[k] = ok
++	return ok
++
++## bugcheck peds: would walking straight from a to b cut through a carriageway other than these streets?
++func _ped_walk_crosses_road(a: Vector3, b: Vector3, own: Array) -> bool:
++	for f in [0.25, 0.5, 0.75]:
++		var q := a.lerp(b, f)
++		var r := R.road_at(q.x, q.z, 25.0)
++		if r.is_empty() or own.has(int(r.edge)) or not _drive_ok.get(int(r.edge), false): continue
++		if float(r.dist) < float(r.get("width", 0.0)) * 0.5 - 0.3 and float(r.get("width", 0.0)) > 7.0: return true   # alley / driveway mouths (<= 7 m) are walked across
++	return false
++
++## bugcheck peds: distance from the node at which this street's sidewalk meets the cross street's kerb (cached)
++var _corner_cache := {}
++func _corner_s(eid: int, node: int) -> float:
++	var k := eid * 1000003 + node
++	if _corner_cache.has(k): return _corner_cache[k]
++	var v := maxf(_ped_setback(eid, node) - 1.5, 3.0)
++	_corner_cache[k] = v
++	return v
++
+ func _ped_at_corner(pd: Dictionary) -> void:
+ 	var e: Dictionary = R.edges[pd.edge]
+ 	var node: int = e.b if pd.dirn > 0 else e.a
+@@ -1384,7 +1440,7 @@ func _ped_at_corner(pd: Dictionary) -> void:
+ 		var sig := _signal_red_for_edge(node, pd.edge, "f" if pd.dirn > 0 else "b", 9.0)
+ 		pd.state = "wait_cross"; pd.wait = 0.0; pd.xc = -1000 - pd.edge; pd.xsig = sig != -1; pd.xnode = node if sig != -1 else -1
+ 		if sig == -1: pd.xnode = -1; pd.xsig = false; pd.xjunction = node
+-		var xs := maxf(setback(pd.edge, node) - 1.5, 3.0)   # crosswalk in the junction mouth, ahead of the stop bar
++		var xs := _corner_s(pd.edge, node)   # crosswalk in the junction mouth, ahead of the stop bar
+ 		var L: float = edge_piece(pd.edge).len
+ 		pd.s = clampf(xs if pd.dirn < 0 else L - xs, 2.0, L - 2.0)
+ 		pd.after = "turn"
+@@ -1400,27 +1456,32 @@ func _ped_turn(pd: Dictionary) -> void:
+ 	var opts: Array = []
+ 	for x in _node_edges.get(node, []):
+ 		if x != pd.edge: opts.append(x)
+-	if opts.is_empty():
+-		pd.dirn = -pd.dirn; return
+-	var ne: int = opts[rng.randi_range(0, opts.size() - 1)]
+-	var E2: Dictionary = R.edges[ne]
+-	var P2 := edge_piece(ne)
+-	var at_a: bool = E2.a == node
+-	var s2 := 4.0 if at_a else float(P2.len) - 4.0
+-	var dir2 := 1 if at_a else -1
+-	# sidewalk side of the new street nearest to where we stand (turn the corner, no carriageway crossing)
+-	var best := INF; var bside := 1
+-	for sd in [1, -1]:
+-		var q := {"edge": ne, "s": s2, "lat": _ped_side_off(E2, sd)}
+-		var pp := ped_pos(q)
+-		var dd := pp.distance_to(pd.pos)
+-		if dd < best: best = dd; bside = sd
+-	var q2 := {"edge": ne, "s": s2, "lat": _ped_side_off(E2, bside)}
+-	pd.target = ped_pos(q2)
+-	if best > 30.0:
+-		pd.dirn = -pd.dirn; return
+-	pd.goal = {"edge": ne, "s": s2, "dirn": dir2, "side": bside}
+-	pd.state = "turn"
++	# bugcheck peds: try the streets in random order; take the first whose sidewalk corner is reachable without walking
++	# through a carriageway (a real sidewalk side, and the straight corner walk doesn't cut across another road)
++	for i in range(opts.size() - 1, 0, -1):
++		var j := rng.randi_range(0, i); var tmp = opts[i]; opts[i] = opts[j]; opts[j] = tmp
++	for ne: int in opts:
++		var E2: Dictionary = R.edges[ne]
++		var P2 := edge_piece(ne)
++		var at_a: bool = E2.a == node
++		var c2: float = minf(_corner_s(ne, node), float(P2.len) * 0.3)   # the new street's sidewalk corner
++		var s2 := c2 if at_a else float(P2.len) - c2
++		var dir2 := 1 if at_a else -1
++		# sidewalk side of the new street nearest to where we stand (turn the corner, no carriageway crossing)
++		var best := INF; var bside := 0
++		for sd in [1, -1]:
++			if not _ped_side_ok(ne, sd): continue
++			var pp := ped_pos({"edge": ne, "s": s2, "lat": _ped_side_off(E2, sd)})
++			var dd := pp.distance_to(pd.pos)
++			if dd < best: best = dd; bside = sd
++		if bside == 0 or best > 30.0: continue
++		var tg := ped_pos({"edge": ne, "s": s2, "lat": _ped_side_off(E2, bside)})
++		if _ped_walk_crosses_road(pd.pos, tg, [pd.edge, ne]): continue
++		pd.target = tg
++		pd.goal = {"edge": ne, "s": s2, "dirn": dir2, "side": bside}
++		pd.state = "turn"
++		return
++	pd.dirn = -pd.dirn   # no street to turn into on foot: back along this one
+ 
+ # ---------------------------------------------------------------- spawning
+ func _spawn_cars() -> void:
+@@ -1527,6 +1588,8 @@ func _spawn_peds() -> void:
+ 		var P := edge_piece(eid)
+ 		var s := rng.randf_range(4.0, maxf(4.5, P.len - 4.0))
+ 		var side := 1 if rng.randf() < 0.5 else -1
++		if not _ped_side_ok(eid, side): side = -side   # bugcheck peds: only a real sidewalk (not a median / other carriageway)
++		if not _ped_side_ok(eid, side): continue
+ 		var q := {"edge": eid, "s": s, "lat": _ped_side_off(e, side)}
+ 		var p := ped_pos(q)
+ 		var dfoc := p.distance_to(focus)
+-- 
+2.43.0
+
