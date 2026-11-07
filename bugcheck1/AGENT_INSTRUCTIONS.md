@@ -34,6 +34,7 @@ git am /path/to/bugcheck1/patches/0002-*.patch
 ...
 git am /path/to/bugcheck1/patches/0031-*.patch
 git am /path/to/bugcheck1/patches/0032-*.patch
+git am /path/to/bugcheck1/patches/0033-*.patch
 ```
 
 | Patch | What it fixes | Files |
@@ -70,6 +71,7 @@ git am /path/to/bugcheck1/patches/0032-*.patch
 | 0030 | Fences: 1474 side-yard + 541 shared rear fences between neighbouring houses (data + loader) | map_dc/coronado/furniture/fences_alleys.gd, furniture/data/fences_alleys.json |
 | 0031 | Facade kit: no 3D window trim / shutters (they floated off the walls); kit tris 6.53 M -> 1.17 M. Kit + package bake | map_dc/coronado/bldg_tex/facade/tools/facade_kit.gd |
 | 0032 | Kit bake: deletes the old kit_/kitn_ files of a block whose kit is now empty (14 blocks after 0029/0031 kept stale frames). Bake tool only | map_dc/coronado/bldg_tex/facade/tools/bake_kit.gd |
+| 0033 | bake_cells `-- --all`: also rebakes merged prop/road cells of packaged chunks (verify_bakes checked them; 2 were stale since 0008). Bake tool only | tools/gray_bake/bake_cells.gd |
 
 After applying all of them, run the import again (`--import`) so the new script gets its `.uid` / cache entries.
 
@@ -103,7 +105,7 @@ Run these steps from `project/` instead of the whole of `export_baked.sh` (same 
    byte-identical, so only the changed cells' files differ):
    ```
    godot --headless --path . res://tools/gray_bake/bake_world.tscn
-   godot --headless --path . res://tools/gray_bake/bake_cells.tscn
+   godot --headless --path . res://tools/gray_bake/bake_cells.tscn -- --all
    ```
    bake_cells now ends with `CELLBAKE furn chunks 0 road chunks 0 cells 0` and may exit with an abort (rc 134 / 3):
    that is expected, every cell is a package now (bake_cellpkg) so it has nothing to do.

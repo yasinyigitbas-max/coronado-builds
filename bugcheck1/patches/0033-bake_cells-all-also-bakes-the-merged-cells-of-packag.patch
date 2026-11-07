@@ -1,0 +1,39 @@
+From 522ad64545aecc3af88e20e9a3fdb6b57dcf007b Mon Sep 17 00:00:00 2001
+From: bugcheck <bugcheck@local>
+Date: Sat, 7 Nov 2026 17:34:06 +0000
+Subject: [PATCH] bake_cells: --all also bakes the merged cells of packaged
+ chunks
+
+verify_bakes checks the furniture / road merge cells around the start with packages off. bake_cells skipped
+every packaged chunk, so after 0008 (door clearance) cells -9_17 and -9_18 kept the old props: VB cell
+mismatches=2 (export_baked.sh fails on it). bake_cells -- --all rebuilds them (41 s, unchanged cells are
+written byte-identical): VB cell checked=37 mismatches=0. The game streams packages there, so it was
+a gate failure, not a visible bug.
+---
+ tools/gray_bake/bake_cells.gd | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/tools/gray_bake/bake_cells.gd b/tools/gray_bake/bake_cells.gd
+index 25318937..ca29a35e 100644
+--- a/tools/gray_bake/bake_cells.gd
++++ b/tools/gray_bake/bake_cells.gd
+@@ -4,6 +4,7 @@ extends Node
+ ## props_small / sign_face 200 m) gets ALL of its pieces; each is merged in sorted id order and written as
+ ## baked/cell_<hash>.bin = [manifest {id: piece_sig}, world arrays], sig = CellMerge.man_sig(manifest).
+ ## Run after bake_world (which clears baked/): godot --headless --path . res://tools/gray_bake/bake_cells.tscn
++## bugcheck1 0033: -- --all also rebuilds the cells of packaged chunks (verify_bakes checks them; after 0008 door clearance they were stale)
+ const CM := preload("res://map_dc/coronado/perf/cell_merge.gd")
+ func _ready() -> void: _run.call_deferred()
+ func _run() -> void:
+@@ -23,7 +24,7 @@ func _run() -> void:
+ 	if furn.cellmerge == null: furn._cell_register(Node3D.new())   # creates FurnCells
+ 	var hold := Node3D.new(); hold.name = "CellBakeHold"; w.add_child(hold)
+ 	var nf := 0
+-	var pkg := CellPkg.want_cells()   # gray-cellpkg: packaged cells carry their own road / furniture meshes (never registered)
++	var pkg := ({} if "--all" in OS.get_cmdline_user_args() else CellPkg.want_cells())   # gray-cellpkg: packaged cells carry their own road / furniture meshes (never registered)
+ 	for k: Vector2i in furn.chunk_keys():
+ 		if pkg.has(k): continue
+ 		var c: Node3D = furn.build_chunk(k); hold.add_child(c)
+-- 
+2.43.0
+
