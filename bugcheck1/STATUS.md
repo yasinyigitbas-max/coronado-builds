@@ -14,3 +14,15 @@
 3. Turn-curve fix (straight / kinked connectors), only if Yasin asks.
 4. Physics (basic / fuller), only when Yasin says "start physics".
 5. Open the pull request bugcheck1 → main for Yasin to merge.
+
+## New request (Yasin, 2026-11-07 03:1x UTC): one solid wall colour per building + no half doors / windows
+Approved: re-bake. Hero locations (Hotel del Coronado, Village Cinema and other landmarks) keep their own look.
+Findings so far (not fixed yet):
+- Wall colour = `map_dc/coronado/bldg_tex/bldg_atlas.gdshader`: style tiles from `textures/styles.json` (bldg_style.py) +
+  6 wall-texture sets from `facade/setmap.png` (R8, **2 m/px**, sampled 1 m inside each wall). Adjacent buildings share
+  boundary pixels, so one building's walls can sample the neighbour's set → irregular multi-coloured buildings (likely cause).
+- Plan: give each non-hero building ONE set + ONE solid wall colour from its building id (per-building attribute in
+  the baked building / blockmerge chunks, or a building-id lookup instead of the 2 m setmap), hero list exempt;
+  then re-bake (build_buildings.py → bake_chunks → blockmerge bake_blocks → vlit → kit → cellpkg via export_baked.sh).
+- Doors / windows: scan facade kit placements (`facade/tools/facade_kit.gd`, kit_X_Z.scn) + shop prefabs for parts that
+  overhang a wall end, cross a door cut, or are clipped by the roof / ground → list + fix the placement rules.
