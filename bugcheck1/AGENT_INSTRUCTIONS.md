@@ -33,6 +33,7 @@ git am /path/to/bugcheck1/patches/0001-*.patch
 git am /path/to/bugcheck1/patches/0002-*.patch
 ...
 git am /path/to/bugcheck1/patches/0031-*.patch
+git am /path/to/bugcheck1/patches/0032-*.patch
 ```
 
 | Patch | What it fixes | Files |
@@ -68,6 +69,7 @@ git am /path/to/bugcheck1/patches/0031-*.patch
 | 0029 | Facade kit: no roof edges (cornices, parapet caps; eaves already off). Needs the kit bake + package bake of 283 cells | map_dc/coronado/bldg_tex/facade/tools/facade_kit.gd |
 | 0030 | Fences: 1474 side-yard + 541 shared rear fences between neighbouring houses (data + loader) | map_dc/coronado/furniture/fences_alleys.gd, furniture/data/fences_alleys.json |
 | 0031 | Facade kit: no 3D window trim / shutters (they floated off the walls); kit tris 6.53 M -> 1.17 M. Kit + package bake | map_dc/coronado/bldg_tex/facade/tools/facade_kit.gd |
+| 0032 | Kit bake: deletes the old kit_/kitn_ files of a block whose kit is now empty (14 blocks after 0029/0031 kept stale frames). Bake tool only | map_dc/coronado/bldg_tex/facade/tools/bake_kit.gd |
 
 After applying all of them, run the import again (`--import`) so the new script gets its `.uid` / cache entries.
 
@@ -85,7 +87,8 @@ Only 0008 / 0011 (street furniture rows of 18 cells), 0020 / 0026 (car LOD meshe
 
 00. Facade kit (0029 + 0031): `godot --headless --path . -s res://map_dc/coronado/bldg_tex/facade/tools/bake_kit.gd`, then
    `godot --headless --path . -s res://tools/gray_bake/kit_manifest.gd -- --verify=12` (expect `roof_edge_removed 28684` and
-   `window_trim_removed 149888` in the BAKE line, kit tris ~1.17 M). Then add the cells of
+   `window_trim_removed 149888` and `stale_removed 28` (first run with 0032) in the BAKE line, kit tris ~1.17 M, and
+   `VB kit checked=13 mismatches=0`). bake_kit MUST run after bake_world / restore of baked/ (as in export_baked.sh). Then add the cells of
    `bugcheck1/KIT_CHANGED_CELLS_0029_0031.txt` to the
    `--only=` list of the bake_cellpkg step below (together with the DOOR_CLEAR_CELLS), so their packages carry the new kits.
 0. Car LODs (0020), incremental, car files only:
@@ -102,6 +105,8 @@ Run these steps from `project/` instead of the whole of `export_baked.sh` (same 
    godot --headless --path . res://tools/gray_bake/bake_world.tscn
    godot --headless --path . res://tools/gray_bake/bake_cells.tscn
    ```
+   bake_cells now ends with `CELLBAKE furn chunks 0 road chunks 0 cells 0` and may exit with an abort (rc 134 / 3):
+   that is expected, every cell is a package now (bake_cellpkg) so it has nothing to do.
    Expect in the log: `CoronadoFurniture: 28 props / trees removed from 201 door fronts (door clearance v1)` and
    `DOOR_CLEAR_CELLS -9_18,-18_32,-11_20,-14_25,-17_30,-17_31,-17_35,-18_34,-17_36,-18_33,-11_19,-16_35,-17_33,-19_33,-19_34,-16_37,-17_22,-13_22`
 2. Cell packages for those 18 cells only (needs a renderer, like export_baked.sh):
