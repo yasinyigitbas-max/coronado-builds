@@ -32,7 +32,7 @@ From `project/`, apply every file in `bugcheck1/patches/` **in number order** wi
 git am /path/to/bugcheck1/patches/0001-*.patch
 git am /path/to/bugcheck1/patches/0002-*.patch
 ...
-git am /path/to/bugcheck1/patches/0030-*.patch
+git am /path/to/bugcheck1/patches/0031-*.patch
 ```
 
 | Patch | What it fixes | Files |
@@ -67,6 +67,7 @@ git am /path/to/bugcheck1/patches/0030-*.patch
 | 0028 | Trees: 1524 moved ~1 m off the sidewalk walking lines; 570 removed (inside buildings, on park paths, no free spot); data only (trees.json) | map_dc/coronado/furniture/data/trees.json |
 | 0029 | Facade kit: no roof edges (cornices, parapet caps; eaves already off). Needs the kit bake + package bake of 283 cells | map_dc/coronado/bldg_tex/facade/tools/facade_kit.gd |
 | 0030 | Fences: 1474 side-yard + 541 shared rear fences between neighbouring houses (data + loader) | map_dc/coronado/furniture/fences_alleys.gd, furniture/data/fences_alleys.json |
+| 0031 | Facade kit: no 3D window trim / shutters (they floated off the walls); kit tris 6.53 M -> 1.17 M. Kit + package bake | map_dc/coronado/bldg_tex/facade/tools/facade_kit.gd |
 
 After applying all of them, run the import again (`--import`) so the new script gets its `.uid` / cache entries.
 
@@ -79,12 +80,13 @@ After applying all of them, run the import again (`--import`) so the new script 
 - Suggested release tag when Yasin approves: `coronado-fix3`, prerelease, title **"Coronado fix3"**.
 
 ## 4. Re-bake ONLY the changed parts, then export
-Only 0008 / 0011 (street furniture rows of 18 cells), 0020 / 0026 (car LOD meshes) and 0029 (facade kit, 283 cell packages) change baked content. All other patches
+Only 0008 / 0011 (street furniture rows of 18 cells), 0020 / 0026 (car LOD meshes) and 0029 / 0031 (facade kit, the cell packages in KIT_CHANGED_CELLS_0029_0031.txt) change baked content. All other patches
 (0001-0007, 0009, 0010, 0012-0019, 0021-0025, 0027) are runtime code / settings only.
 
-00. Facade kit (0029): `godot --headless --path . -s res://map_dc/coronado/bldg_tex/facade/tools/bake_kit.gd`, then
-   `godot --headless --path . -s res://tools/gray_bake/kit_manifest.gd -- --verify=12` (expect `roof_edge_removed 28684`
-   in the BAKE line, kit tris ~6.53 M). Then add the 283 cells of `bugcheck1/KIT_CHANGED_CELLS_0029.txt` to the
+00. Facade kit (0029 + 0031): `godot --headless --path . -s res://map_dc/coronado/bldg_tex/facade/tools/bake_kit.gd`, then
+   `godot --headless --path . -s res://tools/gray_bake/kit_manifest.gd -- --verify=12` (expect `roof_edge_removed 28684` and
+   `window_trim_removed 149888` in the BAKE line, kit tris ~1.17 M). Then add the cells of
+   `bugcheck1/KIT_CHANGED_CELLS_0029_0031.txt` to the
    `--only=` list of the bake_cellpkg step below (together with the DOOR_CLEAR_CELLS), so their packages carry the new kits.
 0. Car LODs (0020), incremental, car files only:
    ```
@@ -116,7 +118,8 @@ Run these steps from `project/` instead of the whole of `export_baked.sh` (same 
    `godot --path . --rendering-method mobile --export-debug Android /path/to/out/coronado-fix3.apk`
    (display-less Linux: `xvfb-run -a` in front, with a Vulkan driver). The log must show "Baking shaders".
 
-**Data packs carry copies of `furniture/data/trees.json` (0028) and `fences_alleys.json` (0030)** and override the project
+**Data packs carry copies of `furniture/data/trees.json` (0028), `fences_alleys.json` (0030) and the facade kit scenes
+(0029 / 0031)** and override the project
 files when mounted: re-cut the packs from the patched project, or the game keeps the old trees / fences.
 Then cut the content packs with `tools/pack/split_packs.py` exactly as for earlier builds (packs are content-addressed:
 only the packs whose files changed get new names, so players re-download only those), and run

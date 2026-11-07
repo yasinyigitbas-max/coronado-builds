@@ -35,7 +35,7 @@ Coronado content packs (binary only)
 - **No first-use shader stalls** (0022): shaders are compiled into the APK at export (Vulkan shader baker).
 - **Distant traffic stays put, lights match** (0024); **shops drawn fully once the door opens** (0025); **parked cars
   look right from afar** (0026); **smooth grass / sand borders** ([before / after](bugcheck1/img/0027_surface_edges_before_after.png), 0027).
-- **Trees off the sidewalks and out of buildings** (0028), **no floating roof edges** (0029), **fences between
+- **Trees off the sidewalks and out of buildings** (0028), **no floating roof edges or window frames** (0029, 0031, [before / after](bugcheck1/img/0029_0031_kit_roof_edges_window_frames_before_after.png)), **fences between
   houses** ([before / after](bugcheck1/img/0030_side_fences_before_after.png), 0030).
 - **Night glow** (0023): street lamps, windows and car lights glow softly at night (off by day and on Low).
 - **Livelier picture** (0021): MSAA 2x, no sky banding, AgX colours ([tone mapping A/B](bugcheck1/img/0021_tonemap_filmic_agx_mild_strong.png)).

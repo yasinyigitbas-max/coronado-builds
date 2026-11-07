@@ -1,4 +1,4 @@
-# bugcheck1 update: patches 0015-0030 only
+# bugcheck1 update: patches 0015-0031 only
 
 Patches 0001-0014 are already in your build. Do not re-apply them.
 
@@ -6,7 +6,7 @@ Patches 0001-0014 are already in your build. Do not re-apply them.
    "Crowd: walkers wait for green only at the kerb, never mid-crossing" (0014).
 2. Apply the thirteen new patches in order (if your build already has 0015-0023, apply only 0024-0027), from `bugcheck1/patches/` on branch `claude/laughing-bell-mxpuak`:
    ```
-   git am -3 0015-*.patch 0016-*.patch 0017-*.patch 0018-*.patch 0019-*.patch 0020-*.patch 0021-*.patch 0022-*.patch 0023-*.patch 0024-*.patch 0025-*.patch 0026-*.patch 0027-*.patch 0028-*.patch 0029-*.patch 0030-*.patch
+   git am -3 0015-*.patch 0016-*.patch 0017-*.patch 0018-*.patch 0019-*.patch 0020-*.patch 0021-*.patch 0022-*.patch 0023-*.patch 0024-*.patch 0025-*.patch 0026-*.patch 0027-*.patch 0028-*.patch 0029-*.patch 0030-*.patch 0031-*.patch
    ```
 3. Your build also has your own "activationopt1a" changes. 0015 (map_dc/coronado/tests/coronado_layers.gd, `_pkg_added`)
    and 0018 (world_fx/breakables.gd `_rebuild`, furniture_layer.gd `_variant`) touch the same functions. If a patch
@@ -51,11 +51,13 @@ What the five patches do:
 - 0025: a shop's whole room is drawn while its door is open (no portal culling from outside)
 - 0026: parked-car impostor lit and shaped right (no dark roof slab); parked-car batches not capped at 220 m (re-bake car LODs)
 - 0030: side-yard + rear fences between neighbouring houses (fences_alleys.json + loader)
-- **0028 and 0030 change data files that the content packs also carry** (trees.json, fences_alleys.json): re-cut the
+- **0028, 0029/0031 and 0030 change files that the content packs also carry** (kit scenes too) (trees.json, fences_alleys.json): re-cut the
   packs from the patched project (split_packs.py), or the mounted packs keep serving the old files.
-- 0029: facade kit without roof edges (cornices / parapet caps). BAKE: bake_kit.gd + kit_manifest --verify=12, then
-  bake_cellpkg --only=<the 283 cells in bugcheck1/KIT_CHANGED_CELLS_0029.txt>, then dcut_pkg --merge + verify_bakes
-  (same commands as AGENT_INSTRUCTIONS step 4). Only those cells; never a full re-bake.
+- 0029 + 0031: facade kit without roof edges (cornices / parapet caps) and without 3D window trim / shutters.
+  BAKE once for both: bake_kit.gd + kit_manifest --verify=12, then bake_cellpkg --only=<the cells in
+  bugcheck1/KIT_CHANGED_CELLS_0029_0031.txt> (plus the DOOR_CLEAR_CELLS), then dcut_pkg --merge + verify_bakes
+  (same commands as AGENT_INSTRUCTIONS step 4). Only those cells; never a full re-bake. Re-cut the packs afterwards
+  (they carry the kit scenes too).
 - 0028: trees off sidewalks / out of buildings and park paths (trees.json data; the furniture bake bake_world refreshes
   the cached tree placement, no cell package re-bake)
 - 0027: smooth grass / sand / soil borders (no zigzag edges)

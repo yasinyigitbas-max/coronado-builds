@@ -1,0 +1,36 @@
+From 03fe668a2e13820332b3d89dede590ea939201df Mon Sep 17 00:00:00 2001
+From: bugcheck <bugcheck@local>
+Date: Sat, 7 Nov 2026 17:08:42 +0000
+Subject: [PATCH] Facade kit: no 3D window trim (frames floated off the walls)
+
+Yasin 7 Nov: remove the floating window frames. p_window_trim built a 3D casing, sill, head /
+keystone and shutters over every painted window; wherever the kit's facade line and the building
+mesh's wall differ they stood off the wall (white frames floating beside house walls). Removed
+(WINDOW_TRIM_OFF); the painted window (bldg_atlas.gdshader decal 13: frame + sill line) stays.
+Kit bake: window_trim_removed 149888, kit triangles 6.53 M -> 1.17 M (with 0029: 7.29 M -> 1.17 M).
+Rendered with the new kits (override pack, --nocellpkg): floating frames and roof-edge bars gone.
+Needs the kit bake + package bake of the cells in bugcheck1/KIT_CHANGED_CELLS_0029_0031.txt.
+---
+ map_dc/coronado/bldg_tex/facade/tools/facade_kit.gd | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/map_dc/coronado/bldg_tex/facade/tools/facade_kit.gd b/map_dc/coronado/bldg_tex/facade/tools/facade_kit.gd
+index f313cd0c..88d3b3c5 100644
+--- a/map_dc/coronado/bldg_tex/facade/tools/facade_kit.gd
++++ b/map_dc/coronado/bldg_tex/facade/tools/facade_kit.gd
+@@ -255,7 +255,12 @@ func p_door_lamp(F: Dictionary, u: float, y: float, kind: int) -> void:
+ ## Shutters: glass height x half the window width, outside the casing, only if they fit inside [lo, hi] (the bay / wall).
+ const EAVES_OFF := true   ## visual-src4 (t81u): facade-kit eaves removed everywhere
+ const TRIM_W := 0.08; const TRIM_D := 0.04
++## bugcheck1 0031 (Yasin 7 Nov: "remove those window frames too"): the 3D casing / sill / head / keystone / shutters stood
++## off the wall wherever the kit's facade line and the building mesh's wall differ (white frames floating beside house
++## walls). The painted window (bldg_atlas.gdshader decal 13: frame + sill line) stays; no 3D trim at all.
++const WINDOW_TRIM_OFF := true
+ func p_window_trim(F: Dictionary, u0: float, u1: float, y0: float, y1: float, style: int, sh: int, lo := -1e9, hi := 1e9) -> void:
++	if WINDOW_TRIM_OFF: _use("window_trim_removed"); return
+ 	var W := u1 - u0; var H := y1 - y0
+ 	var gu0 := u0 + 0.078 * W; var gu1 := u1 - 0.078 * W; var gy1 := y1 - 0.078 * H; var gy0 := y1 - 0.89 * H
+ 	var tid := TRIM if style != 2 else STONE
+-- 
+2.43.0
+

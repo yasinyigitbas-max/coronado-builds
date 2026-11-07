@@ -179,3 +179,8 @@ junction rework (key bug for cars + one-booking rule) and the turn-curve fix.
   With the real new trees.json: test_tree_col PASS (old trees.json via the same runtime path: FAIL 4/10 downtown).
 - Item 7 (road lines) on hold: overhead renders show continuous markings; needs Yasin's screenshot / location.
 - Noticed: floating white window frames (facade kit) beside some house walls; tree canopies black from below.
+- 0031: 3D window trim / shutters off (149888 removed; kit 6.53 M → 1.17 M tris). Changed cells (0029+0031): 398,
+  bugcheck1/KIT_CHANGED_CELLS_0029_0031.txt.
+- CORRECTION: the 0029 render check above used the packs' OLD kit scenes (packs override project kit files too).
+  Re-checked with an override pack holding the new kits (bugcheck1/tools/override_launch.gd, OVERRIDE_DIRS):
+  floating roof-edge bars and window frames are gone.
