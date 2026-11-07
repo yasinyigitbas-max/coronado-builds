@@ -32,6 +32,8 @@ Coronado content packs (binary only)
 - **Logs**: timing logs no longer pile up on the phone.
 - **Shops look furnished from the door** (0017): the counter, tables and staff were hidden until you stepped about
   a metre inside ([before / after](bugcheck1/img/0017_shop_doorway_before_after.png)).
+- **Cars look whole** (0020): the near and far car meshes had black smears, holes and missing wheels from the old
+  simplifier; rebuilt with Godot's own LOD generator ([before / after](bugcheck1/img/0020_car_lods_before_after_sakura.png)).
 - **Buildings keep their shape as you approach** (0019): the real building is drawn out to 300 m (was 70 m); the
   simplified boxes start only past 300 m ([before / after](bugcheck1/img/0019_mid_view_barbers_near_before_after.png)).
 - **Fewer stutters while driving** (0015, 0016, from the Samsung + Redmi phone logs): city blocks that appear while

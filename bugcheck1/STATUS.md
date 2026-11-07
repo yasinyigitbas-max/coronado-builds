@@ -132,3 +132,8 @@ junction rework (key bug for cars + one-booking rule) and the turn-curve fix.
 - 0019 (runtime, no bake): full mesh to 300 m, boxes 300-730 m, silhouettes from 670 m. Render cost unchanged / lower.
 - Step 2 (needs a building re-bake, not started): regenerate the 300 m+ boxes / silhouettes from the real footprints
   with the near wall colours (per-building simplified prisms instead of chunk blobs).
+
+## Cars (Yasin: "black empty parts") → 0020
+- Quarter mesh (≤ 35 m) smeared dark texels over the bonnet; far mesh (35-140 m) torn, black panels, no wheels.
+- Rebuilt with ImporterMesh.generate_lods (quarter ≈ 50 % level, far = body + wheels at ≈ 20 % level). Needs the
+  car LOD re-bake (red_bake_car_lods.gd, car files only). test_pb_carlods (FAIL on release) / carlods3 / car_mesh PASS.

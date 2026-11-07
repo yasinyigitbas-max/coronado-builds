@@ -1,0 +1,105 @@
+From 4b3f950353d066ca02072fbf26d58b55f880b050 Mon Sep 17 00:00:00 2001
+From: bugcheck <bugcheck@local>
+Date: Sat, 7 Nov 2026 13:07:36 +0000
+Subject: [PATCH] Cars: near / far LOD meshes without holes or black smears
+ (re-bake car LODs)
+
+Yasin 7 Nov: lots of cars have black empty parts. Renders of all 12 models (original /
+quarter / far): the quarter mesh (drawn up to 35 m) smeared dark grille / trim texels over the
+bonnet and warped panels; the far mesh (35-140 m, most traffic and parked cars) from decimate()
+(welded positions + meshoptimizer to 8 %) had holes, black torn panels and no wheels.
+Both now come from Godot's import LOD generator (ImporterMesh.generate_lods: attribute-aware,
+uv seams / normals / borders kept), never below the target count: quarter = the ~50 % level,
+far = body and each wheel simplified separately to the ~20 % level, then merged. Far meshes
+2.4k-4.4k triangles (were ~0.5k-1.4k, torn); MultiMesh draws, so no extra draw calls.
+red_bake_car_lods.gd uses build_lods() for the far mesh; test_pb_carlods rebuilds it the same
+way. Needs a car LOD re-bake (tools/red_bake_car_lods.gd, incremental: car LOD files only).
+test_pb_carlods (FAIL on the release -> PASS), test_pb_carlods3, test_car_mesh PASS.
+---
+ tests/brown/test_pb_carlods.gd |  2 +-
+ tools/red_bake_car_lods.gd     |  2 +-
+ vehicles/car_models.gd         | 36 +++++++++++++++++++++++++++++++++-
+ 3 files changed, 37 insertions(+), 3 deletions(-)
+
+diff --git a/tests/brown/test_pb_carlods.gd b/tests/brown/test_pb_carlods.gd
+index 282fd371..a9c3c0ca 100644
+--- a/tests/brown/test_pb_carlods.gd
++++ b/tests/brown/test_pb_carlods.gd
+@@ -36,7 +36,7 @@ func _initialize() -> void:
+ 			fresh["%s_q_w%d.res" % [id, i]] = qw; parts.append(CarModels._moved(qw, w.center))
+ 		fresh["%s_q_body.res" % id] = qb
+ 		fresh["%s_q.res" % id] = CarModels._merge(parts)
+-		fresh["%s_far.res" % id] = CarModels.decimate(CarModels.mesh_full(id), CarModels.FAR_RATIO)
++		fresh["%s_far.res" % id] = CarModels.build_lods(id)[1]   # bugcheck1 0020: far = body + wheels simplified separately (bake pipeline)
+ 		fresh["%s_imp.res" % id] = CarModels.impostor(id)
+ 		for f: String in fresh:
+ 			var got := _ld(D + f)
+diff --git a/tools/red_bake_car_lods.gd b/tools/red_bake_car_lods.gd
+index 7d7b62da..25ce0141 100644
+--- a/tools/red_bake_car_lods.gd
++++ b/tools/red_bake_car_lods.gd
+@@ -120,7 +120,7 @@ func _initialize() -> void:
+ 			_save(qw, "%s_q_w%d.res" % [id, i])
+ 		var qm := CarModels._merge(parts)
+ 		qb.set_meta("wheels", meta)
+-		var far := CarModels.decimate(full, CarModels.FAR_RATIO)
++		var far: Mesh = CarModels.build_lods(id)[1]   # bugcheck1 0020: body + wheels simplified separately (was decimate(full, FAR_RATIO))
+ 		var imp := CarModels.impostor(id)
+ 		print("BAKE %s full=%d quarter=%d (body %d->%d wheels %d->%d) far=%d imp=%d aabb_full=%s aabb_q=%s" % [id,
+ 			CarModels.tri_count(full), CarModels.tri_count(qm), CarModels.tri_count(fs.body), CarModels.tri_count(qb), wt, wq,
+diff --git a/vehicles/car_models.gd b/vehicles/car_models.gd
+index 78d09792..6b21872c 100644
+--- a/vehicles/car_models.gd
++++ b/vehicles/car_models.gd
+@@ -781,13 +781,47 @@ static func lods(id: String) -> Array:
+ 	return out
+ 
+ ## generate the chain (used by the bake tool and as a fallback)
++## bugcheck1 0020 (Yasin 7 Nov: "lots of cars have black empty parts"): the far mesh (35-140 m, most traffic) came from
++## decimate(): welded positions + meshoptimizer to FAR_RATIO, which tore holes, dropped the wheels and smeared trim /
++## glass texels over the paint. Now body and each wheel are simplified separately with Godot's import LOD generator
++## (attribute-aware: uv seams and normals kept) and never below their target, then merged.
++const FAR_WHEEL_MIN := 24
++const FAR_BODY_RATIO := 0.2   ## the generator halves per level; ~20-25 % is the last level that keeps the body shape (old FAR_RATIO 0.08 only got there by tearing it)
+ static func build_lods(id: String) -> Array:
+-	var fm := decimate(mesh_full(id), FAR_RATIO)
++	var f := split_full(id)
++	var parts: Array = [simplify_to(f.body, int(tri_count(f.body) * FAR_BODY_RATIO))]
++	for w: Dictionary in f.wheels:
++		parts.append(_moved(simplify_to(w.mesh, maxi(int(tri_count(w.mesh) * FAR_BODY_RATIO), FAR_WHEEL_MIN)), w.center))
++	var fm := _merge(parts)
+ 	return [mesh(id), fm, fm, impostor(id)]
+ 
++## bugcheck1 0020: Godot's ImporterMesh LOD chain (meshoptimizer with attribute error: uv seams / normals / borders kept)
++## of a single-surface mesh; returns the coarsest level that still has >= target_tris triangles (the full mesh if none).
++## Levels below the target are never used: that is where the simplifier starts tearing the body open.
++static func simplify_to(m: Mesh, target_tris: int) -> ArrayMesh:
++	var a0 := m.surface_get_arrays(0)
++	var st := SurfaceTool.new(); st.create_from_arrays(a0)
++	if a0[Mesh.ARRAY_INDEX] == null or (a0[Mesh.ARRAY_INDEX] as PackedInt32Array).is_empty(): st.index()
++	if a0[Mesh.ARRAY_NORMAL] == null: st.generate_normals()
++	var a := st.commit_to_arrays()
++	var best: PackedInt32Array = a[Mesh.ARRAY_INDEX]
++	var im := ImporterMesh.new(); im.add_surface(Mesh.PRIMITIVE_TRIANGLES, a)
++	gen_lods_calls += 1
++	im.generate_lods(25.0, 60.0, [])
++	for l in im.get_surface_lod_count(0):
++		var ix := im.get_surface_lod_indices(0, l)
++		if ix.size() / 3 >= target_tris and ix.size() < best.size(): best = ix
++	var b := a.duplicate(); b[Mesh.ARRAY_INDEX] = best
++	var o := ArrayMesh.new(); o.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, b)
++	o.surface_set_material(0, material()); return o
++
+ ## red-dc-carquarter: quarter-quality simplify (from scratch/red/quarter.gd): re-index (vertices with different uvs
+ ## stay split, so atlas seams are kept), meshoptimizer down to QUARTER_RATIO of the triangles, smooth normals.
++## bugcheck1 0020: the old path (kept below as quarter_old) smeared dark trim / grille texels over the bonnet and warped
++## panels; Godot's import LOD generator keeps uv seams and normals (simplify_to).
+ static func quarter(m: Mesh, ratio := QUARTER_RATIO) -> ArrayMesh:
++	return simplify_to(m, maxi(int(tri_count(m) * ratio), 4))
++static func quarter_old(m: Mesh, ratio := QUARTER_RATIO) -> ArrayMesh:
+ 	var a := m.surface_get_arrays(0)
+ 	var full := tri_count(m)
+ 	var b := []; b.resize(Mesh.ARRAY_MAX)
+-- 
+2.43.0
+

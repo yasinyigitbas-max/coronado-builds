@@ -13,7 +13,8 @@ Don't work around a failed check.
   from release `coronado-vulkan-mobile1-20261107`. The Godot project is `coronado-actprobe1-source/project/`.
 - Follow `BUILD_AND_DEPENDENCIES.md` in that archive for the toolchain, the data packs and the speech plugin.
 - **A re-bake is required and approved by Yasin**, but **bake only what changed** (Yasin's rule): door clearance changes the
-  street furniture of 18 cells; nothing else needs new bakes. Never force a full re-bake (no version bumps, no `--clean`).
+  street furniture of 18 cells, and 0020 changes the car LOD meshes (12 car models); nothing else needs new bakes.
+  Never force a full re-bake (no version bumps, no `--clean`).
 - Don't upload, publish or create a release until Yasin says so. `tools/pack/publish_packs.sh` stays a dry run (no `--yes`).
 - Don't change anything outside what these steps describe. If a patch does not apply cleanly, stop and report.
 
@@ -31,7 +32,7 @@ From `project/`, apply every file in `bugcheck1/patches/` **in number order** wi
 git am /path/to/bugcheck1/patches/0001-*.patch
 git am /path/to/bugcheck1/patches/0002-*.patch
 ...
-git am /path/to/bugcheck1/patches/0019-*.patch
+git am /path/to/bugcheck1/patches/0020-*.patch
 ```
 
 | Patch | What it fixes | Files |
@@ -55,6 +56,7 @@ git am /path/to/bugcheck1/patches/0019-*.patch
 | 0017 | Shops: the street occluder behind an open shop's front is left out while its room is loaded (shop looked empty from the door) | shops/shops_layer.gd, shops/interior/interiors_layer.gd, shops/interior/shop_interior.gd, tests/coronado_layers.gd |
 | 0018 | Perf: breakable props merged from cached mesh data (no GPU read-back per prop: 58 ms at spawn, up to 15 ms mid-drive) | world_fx/breakables.gd, furniture/furniture_layer.gd |
 | 0019 | Buildings: full block mesh drawn to 300 m, simplified boxes only from 300 m (buildings no longer change shape at 70 m) | perf/lod_bands.gd, buildings/coronado_buildings.gd |
+| 0020 | Cars: near / far car meshes rebuilt without holes, black smears or missing wheels (needs the car LOD re-bake, step 4) | vehicles/car_models.gd, tools/red_bake_car_lods.gd, tests/brown/test_pb_carlods.gd |
 
 After applying all of them, run the import again (`--import`) so the new script gets its `.uid` / cache entries.
 
@@ -68,7 +70,15 @@ After applying all of them, run the import again (`--import`) so the new script 
   **"Coronado bugcheck1: bug fixes + smarter traffic (experimental)"**.
 
 ## 4. Re-bake ONLY the changed parts, then export
-Only 0008 / 0011 change baked content (street furniture rows of 18 cells). All other patches (0001-0007, 0009, 0010, 0012-0019) are runtime code only.
+Only 0008 / 0011 (street furniture rows of 18 cells) and 0020 (car LOD meshes) change baked content. All other patches
+(0001-0007, 0009, 0010, 0012-0019) are runtime code only.
+
+0. Car LODs (0020), incremental, car files only:
+   ```
+   godot --headless --path . -s res://tools/red_bake_car_lods.gd
+   ```
+   Expect for each of the 12 ids `BAKEPART carlods <id> rebake (...)` and `CARLOD <id> files 8 mismatches 0`
+   (far meshes about 2.4k-4.4k triangles). It rewrites only `vehicles/models/lod/*.res` and `carlods.json`.
 Run these steps from `project/` instead of the whole of `export_baked.sh` (same commands as in that script):
 
 1. Furniture chunk merges + static furniture cells (these tools have no partial mode; they rewrite unchanged chunks
@@ -112,6 +122,7 @@ are `extends Node` scenes. The bug check used `bugcheck1/tools/late_launch.gd`:
 | tests/core/test_save.gd, tests/core/test_story.gd | PASS, no "previously freed" errors |
 | tests/ui/test_wardrobe.gd | finishes (no hang); only "rows from the creator choices" fails (outdated: men now have 5 tops) |
 | tests/world_fx/test_breakables.gd, tests/fuel/test_fuel.gd | PASS |
+| tests/brown/test_pb_carlods.gd, tests/brown/test_pb_carlods3.gd, tests/traffic/test_car_mesh.gd | PASS (after the car LOD re-bake) |
 | `tools/gray_bake/verify_bakes.tscn` (part of export_baked.sh) | its usual PASS |
 
 Known outdated tests that fail **before and after** these fixes are listed in `TEST_RESULTS.md`; don't "fix" them
@@ -131,10 +142,10 @@ Install over the existing app (same signer). Things to look at:
    visible before you step in (0017).
 9. Drive towards downtown from 300 m: buildings keep their shape and roof as you approach (0019); the switch to
    simple boxes now happens at 300 m instead of 70 m.
+10. Watch traffic and parked cars from 10-100 m: no black holes, torn panels or missing wheels (0020).
 
 ## 7. Not in this build (reported, not fixed)
 - 4 NPC lines without voice clips (barista greet / no_money, passer-by cafe / beach): need recordings.
 - A bus can wait forever for a player standing still at the Spreckels Park taxi stand (buses skip the gridlock breaker).
 - About 6% of junction turn curves are straight diagonals and about 8% snap mid-turn (`conn_piece` fallback); a separate fix.
-- Car LOD bakes differ byte-for-byte from a fresh rebuild on Linux; check `tests/brown/test_pb_carlods.gd` on Yasin's PC.
 - Map-sanity "buried poles / floating trees" are probably measurement artefacts (the ray hits pole boxes / collision vs. drawn ground); check visually.
