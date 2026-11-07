@@ -94,3 +94,12 @@ worker restart; re-run it; (3) then D (CPU perf audit).
 Crowd walkers (0014): standing still on the road 0 at all 4 audit spots (Hotel del was 61-122). NPC tests pass.
 NEXT: D (CPU performance audit + 60 fps plan). Car junction rework (key bug for cars + one-booking rule) = separate,
 waiting for Yasin.
+
+## D (CPU perf audit) WIP ~06:55 UTC
+Route (perf_route one lap, --perfroute_menu --perfseed=1, headless, packs mounted): script mean 3.65 ms (budget 4), p99 10.4.
+- 69 of 74 hitches > 50 ms = cell package activation (proc_coronado_buildings): bldg_add_tree / pkg.post_add 200-380 ms,
+  per actprobe1 JSONL: pkg.road_register 2.6 s total (peak 330 ms), pkg.furniture_register 1.8 s (peak 216 ms);
+  add_child itself only 58 ms total. pkg_sync_load_headless = headless-only path (CellPkg.HEADLESS_SYNC), not on phone.
+- The SAME route warm (OS file cache full) has NO hitch > 100 ms (max 67 ms): the spikes are main-thread DISK READS of
+  pack data during activation (cold cache = phone-like). Instrumented warm runs: CellMerge.add < 5 ms, road register
+  <= 17 ms, Baked.load_any <= 7 ms. NEXT: find which call reads from disk on the main thread (cold-cache run).
