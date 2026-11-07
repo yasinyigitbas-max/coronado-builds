@@ -32,7 +32,7 @@ From `project/`, apply every file in `bugcheck1/patches/` **in number order** wi
 git am /path/to/bugcheck1/patches/0001-*.patch
 git am /path/to/bugcheck1/patches/0002-*.patch
 ...
-git am /path/to/bugcheck1/patches/0027-*.patch
+git am /path/to/bugcheck1/patches/0028-*.patch
 ```
 
 | Patch | What it fixes | Files |
@@ -64,6 +64,7 @@ git am /path/to/bugcheck1/patches/0027-*.patch
 | 0025 | Shops: the whole room is drawn while its door is open (portal cull off) | shops/interior/portal_cull.gd, shops/interior/interiors_layer.gd |
 | 0026 | Parked cars: impostor lit and shaped like the car; parked batches not capped at 220 m (needs the car LOD re-bake) | vehicles/car_models.gd, vehicles/parked_cars.gd |
 | 0027 | Terrain: smooth grass / sand / soil borders (4-texel majority class, light warp) | map_dc/coronado/terrain/terrain.gdshader |
+| 0028 | Trees: 1524 moved ~1 m off the sidewalk walking lines; 570 removed (inside buildings, on park paths, no free spot); data only (trees.json) | map_dc/coronado/furniture/data/trees.json |
 
 After applying all of them, run the import again (`--import`) so the new script gets its `.uid` / cache entries.
 

@@ -166,3 +166,7 @@ junction rework (key bug for cars + one-booking rule) and the turn-curve fix.
   Car LOD re-bake required (test_pb_carlods FAIL with old bakes, PASS with new).
 - 0027 terrain class borders smooth (4-texel majority), warp +-0.6 m.
 - test_traffic / test_car_mesh / test_pb_carlods PASS; door flow OK on 6 shops.
+- Item 5 → 0028 (trees.json): scan bugcheck1/tools/tree_scan.gd; 376 in buildings + 109 on paths + 85 sidewalk (no
+  space) removed, 1524 moved ~1 m off the walk graph lines. test_tree_col PASS. Tree canopies look black from
+  underneath (noted, not fixed).
+- Item 6 in progress: kit roof edges (cornices + parapet cap) off (Yasin: remove eaves / roof edges entirely).
