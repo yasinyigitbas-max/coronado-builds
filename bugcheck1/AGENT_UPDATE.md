@@ -20,7 +20,8 @@ Patches 0001-0014 are already in your build. Do not re-apply them.
    tests/world_fx/test_breakables.gd, tests/fuel/test_fuel.gd, tests/worker/test_tree_col.gd, tests/core/test_save.gd,
    tests/traffic/test_traffic.gd, tests/traffic/test_cityride.gd, tests/brown/test_pb_carlods.gd,
    tests/brown/test_pb_carlods3.gd, tests/traffic/test_car_mesh.gd.
-6. Build name: keep `…-bugcheck1` and add `-update3` (for example `…-activationopt1a-bugcheck1-update3-src6`).
+6. Build name: **`coronado-fix3`** (in `build_id.txt` and both `version/name` entries of `export_presets.cfg`;
+   APK file `coronado-fix3.apk`).
    Raise `version/code` by 1, same package and signing key. Export the APK. Don't publish or release.
 
 What the five patches do:

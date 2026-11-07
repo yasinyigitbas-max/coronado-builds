@@ -61,13 +61,12 @@ git am /path/to/bugcheck1/patches/0020-*.patch
 After applying all of them, run the import again (`--import`) so the new script gets its `.uid` / cache entries.
 
 ## 3. Name the build (so it can't be confused with any other build)
-- `build_id.txt` and both `version/name` entries in `export_presets.cfg`:
-  `brown-perfrescue12-hud-onelap-rebake1-treevis1-mobilevk1-actprobe1-bugcheck1`
+- `build_id.txt` and both `version/name` entries in `export_presets.cfg`: **`coronado-fix3`**
+  (Yasin: a short name. The older long ids stay in the build history; this one is new and unique.)
 - Raise `version/code` in the Android preset by 1 (it must stay an update of the same app; keep package
   `com.yasin.citygame.densecore` and Yasin's signing key so it installs **over** the existing game; never uninstall).
-- APK file name: `coronado_..._actprobe1_bugcheck1.apk`
-- Suggested release tag when Yasin approves: `coronado-bugcheck1-20261107`, prerelease, title
-  **"Coronado bugcheck1: bug fixes + smarter traffic (experimental)"**.
+- APK file name: `coronado-fix3.apk`
+- Suggested release tag when Yasin approves: `coronado-fix3`, prerelease, title **"Coronado fix3"**.
 
 ## 4. Re-bake ONLY the changed parts, then export
 Only 0008 / 0011 (street furniture rows of 18 cells) and 0020 (car LOD meshes) change baked content. All other patches
