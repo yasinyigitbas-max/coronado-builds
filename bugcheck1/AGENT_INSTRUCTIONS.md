@@ -32,7 +32,7 @@ From `project/`, apply every file in `bugcheck1/patches/` **in number order** wi
 git am /path/to/bugcheck1/patches/0001-*.patch
 git am /path/to/bugcheck1/patches/0002-*.patch
 ...
-git am /path/to/bugcheck1/patches/0023-*.patch
+git am /path/to/bugcheck1/patches/0027-*.patch
 ```
 
 | Patch | What it fixes | Files |
@@ -60,6 +60,10 @@ git am /path/to/bugcheck1/patches/0023-*.patch
 | 0021 | Look + frame pacing: FSR 1.0 upscaling, MSAA 2x, debanding, AgX tone mapping + mild colour lift, physics catch-up 2 steps | project.godot, core/game_settings.gd, map_dc/coronado/tests/test_coronado.gd |
 | 0022 | Export: Shader Baker on (Vulkan pipeline shaders compiled at export; export with `--rendering-method mobile`, not `--headless`) | export_presets.cfg |
 | 0023 | Look: night glow (night only, off on Low); MSAA per preset; undoes 0021's FSR line (no FSR in the Mobile renderer) | world_fx/sun_sky.gd, core/game_settings.gd, project.godot |
+| 0024 | Traffic: far cars no longer vanish in groups (lod_bands cap on the far-car batches); car lights end with their body | traffic/traffic.gd, world_fx/car_lights.gd |
+| 0025 | Shops: the whole room is drawn while its door is open (portal cull off) | shops/interior/portal_cull.gd, shops/interior/interiors_layer.gd |
+| 0026 | Parked cars: impostor lit and shaped like the car; parked batches not capped at 220 m (needs the car LOD re-bake) | vehicles/car_models.gd, vehicles/parked_cars.gd |
+| 0027 | Terrain: smooth grass / sand / soil borders (4-texel majority class, light warp) | map_dc/coronado/terrain/terrain.gdshader |
 
 After applying all of them, run the import again (`--import`) so the new script gets its `.uid` / cache entries.
 
@@ -72,8 +76,8 @@ After applying all of them, run the import again (`--import`) so the new script 
 - Suggested release tag when Yasin approves: `coronado-fix3`, prerelease, title **"Coronado fix3"**.
 
 ## 4. Re-bake ONLY the changed parts, then export
-Only 0008 / 0011 (street furniture rows of 18 cells) and 0020 (car LOD meshes) change baked content. All other patches
-(0001-0007, 0009, 0010, 0012-0019, 0021-0023) are runtime code / settings only.
+Only 0008 / 0011 (street furniture rows of 18 cells) and 0020 / 0026 (car LOD meshes) change baked content. All other patches
+(0001-0007, 0009, 0010, 0012-0019, 0021-0025, 0027) are runtime code / settings only.
 
 0. Car LODs (0020), incremental, car files only:
    ```

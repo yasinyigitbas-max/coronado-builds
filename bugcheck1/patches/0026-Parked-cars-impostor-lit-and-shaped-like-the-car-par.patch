@@ -1,0 +1,96 @@
+From 40c4536de2808c6314d606f9e8fdaaa82e847ca8 Mon Sep 17 00:00:00 2001
+From: bugcheck <bugcheck@local>
+Date: Sat, 7 Nov 2026 16:09:43 +0000
+Subject: [PATCH] Parked cars: impostor lit and shaped like the car; parked
+ batches not capped at 220 m (re-bake car LODs)
+
+Yasin 7 Nov: parked cars still look terrible with black bars.
+- CarModels.impostor (parked 90-400 m, traffic 140-400 m): every face kept the normal of its first
+  winding, so the cabin roof and some sides faced down (unlit, near-black slab from above). Normals
+  now point out of their box; the cabin spans the body's real vertices above the belt line (was a
+  fixed slice of the length) and is glass below a painted roof edge. 40 -> 60 triangles.
+- ParkedCars draws one MultiMesh per model + band for the whole island; lod_bands' 220 m
+  small-object cap was measured from that batch's centre, so groups of parked cars came and went.
+  lb_small set (bands / FAR are per car).
+Needs the car LOD re-bake (tools/red_bake_car_lods.gd, car files only), like 0020. If a build has
+0020 without that re-bake, the old torn far meshes (black panels, 25-90 m) are still in it.
+---
+ vehicles/car_models.gd  | 26 +++++++++++++++++++++-----
+ vehicles/parked_cars.gd |  5 +++++
+ 2 files changed, 26 insertions(+), 5 deletions(-)
+
+diff --git a/vehicles/car_models.gd b/vehicles/car_models.gd
+index 6b21872c..36d72bfb 100644
+--- a/vehicles/car_models.gd
++++ b/vehicles/car_models.gd
+@@ -870,23 +870,39 @@ static func impostor(id: String) -> ArrayMesh:
+ 	var y0 := bb.position.y + 0.12; var y1 := bb.end.y
+ 	var belt := lerpf(bb.position.y, y1, 0.55)
+ 	var hw := side_half_w(body, split_full(id).wheels) if not info(id).get("bus", false) else bb.size.x * 0.5
++	# bugcheck1 0026 (Yasin 7 Nov: parked cars "look terrible with black bars" = this impostor, 90-400 m): the cabin was a
++	# fixed 18 %..62 % slice of the length, all of it glass, and every face kept the normal of its first winding, so the
++	# roof (and some sides) faced DOWN: an unlit, near-black slab on every distant car. Now the cabin spans the body's
++	# real vertices above the belt line, its sides are glass below a painted roof edge, and each face's normal points
++	# out of its box (lit like the real body).
+ 	var cz0 := bb.position.z + bb.size.z * 0.18; var cz1 := bb.end.z - bb.size.z * 0.38
++	var czl := INF; var czh := -INF
++	for v: Vector3 in bv:
++		if v.y > lerpf(belt, y1, 0.6): czl = minf(czl, v.z); czh = maxf(czh, v.z)
++	if czh - czl > bb.size.z * 0.2: cz0 = czl; cz1 = czh
+ 	if info(id).get("bus", false): belt = y0; cz0 = bb.position.z + 0.05; cz1 = bb.end.z - 0.05
+ 	var st := SurfaceTool.new(); st.begin(Mesh.PRIMITIVE_TRIANGLES)
+-	var quad := func(q: Array, uv: Vector2) -> void:
++	var quad := func(q: Array, uv: Vector2, ctr: Vector3) -> void:
+ 		var nrm: Vector3 = ((q[1] as Vector3) - q[0]).cross((q[2] as Vector3) - q[0]).normalized()
++		var fc: Vector3 = ((q[0] as Vector3) + q[1] + q[2] + q[3]) * 0.25
++		if nrm.dot(fc - ctr) < 0.0: nrm = -nrm   # outward, whatever the corner order
+ 		for i: int in [0, 1, 2, 0, 2, 3]: st.set_normal(nrm); st.set_uv(uv); st.add_vertex(q[i])
+ 		for i: int in [0, 2, 1, 0, 3, 2]: st.set_normal(nrm); st.set_uv(uv); st.add_vertex(q[i])   # both faces (winding-proof)
+ 	var box := func(lo: Vector3, hi: Vector3, top_in: Vector2, uv_side: Vector2, uv_top: Vector2) -> void:
++		var ctr := (lo + hi) * 0.5
+ 		var b0 := [Vector3(lo.x, lo.y, lo.z), Vector3(hi.x, lo.y, lo.z), Vector3(hi.x, lo.y, hi.z), Vector3(lo.x, lo.y, hi.z)]
+ 		var t0 := [Vector3(lo.x + top_in.x, hi.y, lo.z + top_in.y), Vector3(hi.x - top_in.x, hi.y, lo.z + top_in.y), Vector3(hi.x - top_in.x, hi.y, hi.z - top_in.y), Vector3(lo.x + top_in.x, hi.y, hi.z - top_in.y)]
+-		for i in 4:   # sides (outward winding for Godot's clockwise front faces)
++		for i in 4:   # sides
+ 			var j := (i + 1) % 4
+-			quad.call([b0[i], t0[i], t0[j], b0[j]], uv_side)
+-		quad.call([t0[0], t0[3], t0[2], t0[1]], uv_top)
++			quad.call([b0[i], t0[i], t0[j], b0[j]], uv_side, ctr)
++		quad.call([t0[0], t0[3], t0[2], t0[1]], uv_top, ctr)
+ 	box.call(Vector3(-hw, y0, bb.position.z), Vector3(hw, belt, bb.end.z), Vector2.ZERO, puv, puv)
+ 	if belt < y1 - 0.05:
+-		box.call(Vector3(-hw * 0.92, belt, cz0), Vector3(hw * 0.92, y1, cz1), Vector2(hw * 0.12, bb.size.z * 0.06), guv, puv)
++		var yg := lerpf(belt, y1, 0.82)   # glass band, painted roof edge above it
++		var ins := Vector2(hw * 0.12, (cz1 - cz0) * 0.10)
++		box.call(Vector3(-hw * 0.92, belt, cz0), Vector3(hw * 0.92, yg, cz1), ins * 0.82, guv, puv)
++		var lo2 := Vector3(-hw * 0.92 + ins.x * 0.82, yg, cz0 + ins.y * 0.82); var hi2 := Vector3(hw * 0.92 - ins.x * 0.82, y1, cz1 - ins.y * 0.82)
++		box.call(lo2, hi2, ins * 0.18, puv, puv)
+ 	var o := st.commit(); o.surface_set_material(0, material()); return o
+ 
+ ## red-dc-carlod: real decimation. The merged car meshes are fully split (every triangle has its own vertices, and
+diff --git a/vehicles/parked_cars.gd b/vehicles/parked_cars.gd
+index 0cb52dfe..5d27aa08 100644
+--- a/vehicles/parked_cars.gd
++++ b/vehicles/parked_cars.gd
+@@ -52,6 +52,10 @@ func _prep(id: String) -> void:
+ 		var mi := MultiMeshInstance3D.new(); mi.multimesh = mm; mi.name = "Parked_%s_L%d" % [id, b]
+ 		mi.material_override = CarModels.material() if b == 0 else CarModels.material_far()
+ 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF   # shadows come from the proxy below
++		# bugcheck1 0026: one batch per model + band for the WHOLE island; lod_bands' 220 m small-object cap was measured from
++		# the batch centre, so whole groups of parked cars came and went with the player's distance to that centre. The
++		# bands / FAR are per car here.
++		mi.set_meta(&"lb_small", true)
+ 		add_child(mi); arr.append(mi)
+ 	# shadow proxy: bands 0+1 cast their shadow from the far mesh (~8 % tris) in ONE shadow-only MultiMesh.
+ 	# The shadow passes (4 cascades) were ~80 % of parked-car tris at busy lots (hotel_del: 2.0M).
+@@ -60,6 +64,7 @@ func _prep(id: String) -> void:
+ 	var smi := MultiMeshInstance3D.new(); smi.multimesh = smm; smi.name = "Parked_%s_SH" % id
+ 	smi.material_override = CarModels.material_far()
+ 	smi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF  # t171: parked cars are not near dynamic casters
++	smi.set_meta(&"lb_small", true)
+ 	add_child(smi); arr.append(smi)
+ 	_mmi[id] = arr
+ 
+-- 
+2.43.0
+

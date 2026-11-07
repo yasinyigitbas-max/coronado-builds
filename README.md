@@ -33,6 +33,8 @@ Coronado content packs (binary only)
 - **Shops look furnished from the door** (0017): the counter, tables and staff were hidden until you stepped about
   a metre inside ([before / after](bugcheck1/img/0017_shop_doorway_before_after.png)).
 - **No first-use shader stalls** (0022): shaders are compiled into the APK at export (Vulkan shader baker).
+- **Distant traffic stays put, lights match** (0024); **shops drawn fully once the door opens** (0025); **parked cars
+  look right from afar** (0026); **smooth grass / sand borders** ([before / after](bugcheck1/img/0027_surface_edges_before_after.png), 0027).
 - **Night glow** (0023): street lamps, windows and car lights glow softly at night (off by day and on Low).
 - **Livelier picture** (0021): MSAA 2x, no sky banding, AgX colours ([tone mapping A/B](bugcheck1/img/0021_tonemap_filmic_agx_mild_strong.png)).
 - **Cars look whole** (0020): the near and far car meshes had black smears, holes and missing wheels from the old

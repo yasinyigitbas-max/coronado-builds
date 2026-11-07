@@ -1,0 +1,65 @@
+From 9d37a0bad07cf9983d0ab83209a4fcb3c9afc336 Mon Sep 17 00:00:00 2001
+From: bugcheck <bugcheck@local>
+Date: Sat, 7 Nov 2026 16:14:25 +0000
+Subject: [PATCH] Terrain: smooth surface borders (no zigzag grass / sand /
+ soil edges)
+
+Yasin 7 Nov: many edges of surfaces (grass, sand, water...) are zigzag instead of straight / soft.
+terrain.gdshader read the 2.5 m OSM class map with filter_nearest and warped the lookup +-2 m with
+noise to hide the staircase, which turned every border into ragged zigzags. class_smooth() now
+takes the 4 surrounding texels and keeps the class with the largest summed bilinear weight, so the
+border runs along the smooth 0.5-weight line between texel centres; the warp is +-0.6 m. Path
+neighbour search, patches and the rest of the shader unchanged. 4 texel fetches instead of 1.
+Rendered A/B (opengl3): Centennial Park grass / soil border smooth instead of blocky.
+---
+ map_dc/coronado/terrain/terrain.gdshader | 30 +++++++++++++++++++++---
+ 1 file changed, 27 insertions(+), 3 deletions(-)
+
+diff --git a/map_dc/coronado/terrain/terrain.gdshader b/map_dc/coronado/terrain/terrain.gdshader
+index f4031d06..a7a4ce1a 100644
+--- a/map_dc/coronado/terrain/terrain.gdshader
++++ b/map_dc/coronado/terrain/terrain.gdshader
+@@ -53,13 +53,37 @@ vec3 tex2(sampler2D t, vec2 q, float m) {
+ 	float l = max(dot(v, vec3(0.333)), 0.05);
+ 	return mix(vec3(l), v, 0.3) / l * 0.5;   // mostly luminance detail; palette keeps hue + saturation   // luminance-normalised (mean 0.5) -> palette keeps hue
+ }
++// bugcheck1 0027 (Yasin 7 Nov: "many edges of surfaces, grass, sand, water are zigzag"): the class map is 2.5 m texels read
++// with filter_nearest, and a +-2 m noise warp hid the staircase by turning it into ragged zigzags. Now the class is the
++// one with the largest bilinear weight among the 4 surrounding texels: borders follow the smooth 0.5-weight line between
++// texel centres (straight or gently curved, never stair-stepped), with only a light +-0.6 m wobble left for life.
++int class_smooth(vec2 wq) {
++	vec2 sz = vec2(textureSize(class_map, 0));
++	vec2 t = (wq - class_origin) / class_size_m * sz - 0.5;
++	vec2 fl = floor(t); vec2 f = t - fl;
++	ivec2 i0 = clamp(ivec2(fl), ivec2(0), ivec2(sz) - 1); ivec2 i1 = clamp(ivec2(fl) + 1, ivec2(0), ivec2(sz) - 1);
++	int c00 = int(texelFetch(class_map, ivec2(i0.x, i0.y), 0).r * 255.0 + 0.5);
++	int c10 = int(texelFetch(class_map, ivec2(i1.x, i0.y), 0).r * 255.0 + 0.5);
++	int c01 = int(texelFetch(class_map, ivec2(i0.x, i1.y), 0).r * 255.0 + 0.5);
++	int c11 = int(texelFetch(class_map, ivec2(i1.x, i1.y), 0).r * 255.0 + 0.5);
++	float w00 = (1.0 - f.x) * (1.0 - f.y), w10 = f.x * (1.0 - f.y), w01 = (1.0 - f.x) * f.y, w11 = f.x * f.y;
++	float s00 = w00 + (c10 == c00 ? w10 : 0.0) + (c01 == c00 ? w01 : 0.0) + (c11 == c00 ? w11 : 0.0);
++	float s10 = w10 + (c00 == c10 ? w00 : 0.0) + (c01 == c10 ? w01 : 0.0) + (c11 == c10 ? w11 : 0.0);
++	float s01 = w01 + (c00 == c01 ? w00 : 0.0) + (c10 == c01 ? w10 : 0.0) + (c11 == c01 ? w11 : 0.0);
++	float s11 = w11 + (c00 == c11 ? w00 : 0.0) + (c10 == c11 ? w10 : 0.0) + (c01 == c11 ? w01 : 0.0);
++	int c = c00; float b = s00;
++	if (s10 > b) { c = c10; b = s10; }
++	if (s01 > b) { c = c01; b = s01; }
++	if (s11 > b) { c = c11; }
++	return c;
++}
+ varying vec4 vcol;   // round 22: golf detail patches: a = 0, r = kind/4 (1 bunker, 2 pond), g = signed dist/16 + 0.5
+ void vertex() { wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz; vcol = COLOR; }
+ void fragment() {
+-	// domain-warp the class lookup by +-2 m so 2.5 m texel staircase edges read as irregular boundaries
+-	vec2 wq = wpos.xz + (vec2(vnoise(wpos.xz / 5.0), vnoise(wpos.xz / 5.0 + 41.7)) - 0.5) * 4.0;
++	// bugcheck1 0027: light warp (+-0.6 m, was +-2 m) + smooth class borders (class_smooth)
++	vec2 wq = wpos.xz + (vec2(vnoise(wpos.xz / 7.0), vnoise(wpos.xz / 7.0 + 41.7)) - 0.5) * 1.2;
+ 	vec2 uv = (wq - class_origin) / class_size_m;
+-	int c = int(texture(class_map, uv).r * 255.0 + 0.5);
++	int c = class_smooth(wq);
+ 	bool pathtex = c == 15;
+ 	if (pathtex) {   // round 24: raster path takes the neighbouring ground class (golf rough / fairway / pitch / lawn), not always lawn
+ 		c = 3; vec2 px = 1.0 / vec2(textureSize(class_map, 0));
+-- 
+2.43.0
+

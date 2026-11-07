@@ -156,3 +156,13 @@ junction rework (key bug for cars + one-booking rule) and the turn-curve fix.
 - Found: 12 story lines have no voice clip (caption only): directions / bus stop names / interview invite (built from
   live data), café fill-in-the-blank lines, and the static narrator line "Day 10. McCain Boulevard Gate, North Island
   Base.". Missing en strings: npc.narrator, home.item.bedroom (English fallback shown).
+
+## Play-test round 2 (Yasin 7 Nov evening), items 1-4 → 0024-0027
+- Redmi update5 lap: render scale was toggled to 1.00 during loading (4x pixels): GPU 8 → 15-17 ms. Not a regression.
+  0018 breakables peak 58 → 1.2 ms, 0015 activation hitches 49 → 28 frames > 50 ms, fuel 74 → 43 ms.
+- 0024 far-car batches + CarLights exempt from lod_bands' 220 m cap (measured from the batch centre); lights end with body.
+- 0025 portal cull off while a shop door is open / latched.
+- 0026 impostor normals outward, cabin from real vertices, painted roof edge; parked batches exempt from the cap.
+  Car LOD re-bake required (test_pb_carlods FAIL with old bakes, PASS with new).
+- 0027 terrain class borders smooth (4-texel majority), warp +-0.6 m.
+- test_traffic / test_car_mesh / test_pb_carlods PASS; door flow OK on 6 shops.

@@ -1,0 +1,57 @@
+From 370f0cedba023b935d7f4ff2baf3d2465d3d4fb6 Mon Sep 17 00:00:00 2001
+From: bugcheck <bugcheck@local>
+Date: Sat, 7 Nov 2026 16:06:16 +0000
+Subject: [PATCH] Shops: whole room drawn while its door is open (no portal
+ cull from outside)
+
+Yasin 7 Nov: some shop insides stay invisible unless the player moves in; draw them fully as
+soon as Open is picked. ShopPortalCull hid every room piece it judged invisible through the door
+rect from the camera; from a third-person camera at an angle, or between its 'near door' zone
+and the projection test, pieces the player could see were hidden. While the room's door is
+latched (Open picked) or open (door_open > 0.02), update(.., open) now marks every piece visible;
+the cull resumes when the door shuts. Rendered check (opengl3): door view at 4 m shows the room.
+---
+ map_dc/coronado/shops/interior/interiors_layer.gd | 2 +-
+ map_dc/coronado/shops/interior/portal_cull.gd     | 6 ++++--
+ 2 files changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/map_dc/coronado/shops/interior/interiors_layer.gd b/map_dc/coronado/shops/interior/interiors_layer.gd
+index 03759efc..2a6bca94 100644
+--- a/map_dc/coronado/shops/interior/interiors_layer.gd
++++ b/map_dc/coronado/shops/interior/interiors_layer.gd
+@@ -742,7 +742,7 @@ func _portal_cull() -> void:
+ 		if not rec.has("pc"): rec.pc = ShopPortalCull.new(room)
+ 		if int(rec.get("vr_n", -1)) != room.get_child_count() and (not rec.get("pkg", false) or int(rec.wake) >= 2): _room_range(room); rec.vr_n = room.get_child_count()
+ 		var x0 := room.door_x - CoronadoShopInterior.DOOR_W * 0.5
+-		(rec.pc as ShopPortalCull).update(cp, x0, x0 + CoronadoShopInterior.DOOR_W, CoronadoShopInterior.DOOR_H, room.W, room.D)
++		(rec.pc as ShopPortalCull).update(cp, x0, x0 + CoronadoShopInterior.DOOR_W, CoronadoShopInterior.DOOR_H, room.W, room.D, room.door_latched or room.door_open > 0.02)   # bugcheck1 0025
+ 		portal_culled += int((rec.pc as ShopPortalCull).stats.culled)
+ 		ins = ins or (rec.pc as ShopPortalCull).inside
+ 	# fix16: CameraRig switches to the indoor near / far planes while the camera is inside a live room
+diff --git a/map_dc/coronado/shops/interior/portal_cull.gd b/map_dc/coronado/shops/interior/portal_cull.gd
+index 13a78d14..adc32a91 100644
+--- a/map_dc/coronado/shops/interior/portal_cull.gd
++++ b/map_dc/coronado/shops/interior/portal_cull.gd
+@@ -52,7 +52,9 @@ func restore() -> void:
+ 			p.hidden = false
+ 
+ ## door: x0, x1 (room local), h = door height. cam_world = camera position.
+-func update(cam_world: Vector3, x0: float, x1: float, h: float, w: float, d: float) -> void:
++## open (bugcheck1 0025): the room's door is open / latched (Open picked): draw the whole room, from any camera angle,
++## until the door shuts again (Yasin 7 Nov: "make the insides visible fully as soon as the open button is clicked").
++func update(cam_world: Vector3, x0: float, x1: float, h: float, w: float, d: float, open := false) -> void:
+ 	if room.get_child_count() != _n: _scan()
+ 	var c := room.global_transform.affine_inverse() * cam_world
+ 	inside = c.z <= 0.6 and c.z >= -d - 0.3 and absf(c.x) <= w * 0.5 + 0.3 and c.y < 4.0
+@@ -63,7 +65,7 @@ func update(cam_world: Vector3, x0: float, x1: float, h: float, w: float, d: flo
+ 	near_door = c.z > 0.0 and c.z < NEAR_Z and c.x >= x0 - NEAR_X and c.x <= x1 + NEAR_X and c.y < h + NEAR_Y
+ 	var n := 0
+ 	for p in pieces:
+-		var vis := inside or near_door or (c.z > 0.0 and _through(c, p.aabb, x0 - PAD, x1 + PAD, -PAD, h + PAD))
++		var vis := open or inside or near_door or (c.z > 0.0 and _through(c, p.aabb, x0 - PAD, x1 + PAD, -PAD, h + PAD))
+ 		if vis == p.hidden:
+ 			p.hidden = not vis
+ 			for e in p.gis:
+-- 
+2.43.0
+
