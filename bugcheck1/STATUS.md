@@ -142,3 +142,5 @@ junction rework (key bug for cars + one-booking rule) and the turn-curve fix.
 - physics catch-up 2, debanding, FSR 1.0, MSAA 2x (reverses the 28 Oct GL-era removal), AgX + contrast 1.05 /
   saturation 1.10 (picked from rendered A/B). test_traffic / cityride / save / car_mesh PASS.
 - Not yet: shader baking at export, night glow, per-item graphics switches, render scale (items 7-10).
+- Item 7 → 0022: shader_baker/enabled=true in both Android presets. Export must run with --rendering-method mobile
+  on a Vulkan machine (not --headless); not testable in the cloud (no Vulkan, no Android templates).

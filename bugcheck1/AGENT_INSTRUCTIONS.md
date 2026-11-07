@@ -32,7 +32,7 @@ From `project/`, apply every file in `bugcheck1/patches/` **in number order** wi
 git am /path/to/bugcheck1/patches/0001-*.patch
 git am /path/to/bugcheck1/patches/0002-*.patch
 ...
-git am /path/to/bugcheck1/patches/0021-*.patch
+git am /path/to/bugcheck1/patches/0022-*.patch
 ```
 
 | Patch | What it fixes | Files |
@@ -58,6 +58,7 @@ git am /path/to/bugcheck1/patches/0021-*.patch
 | 0019 | Buildings: full block mesh drawn to 300 m, simplified boxes only from 300 m (buildings no longer change shape at 70 m) | perf/lod_bands.gd, buildings/coronado_buildings.gd |
 | 0020 | Cars: near / far car meshes rebuilt without holes, black smears or missing wheels (needs the car LOD re-bake, step 4) | vehicles/car_models.gd, tools/red_bake_car_lods.gd, tests/brown/test_pb_carlods.gd |
 | 0021 | Look + frame pacing: FSR 1.0 upscaling, MSAA 2x, debanding, AgX tone mapping + mild colour lift, physics catch-up 2 steps | project.godot, core/game_settings.gd, map_dc/coronado/tests/test_coronado.gd |
+| 0022 | Export: Shader Baker on (Vulkan pipeline shaders compiled at export; export with `--rendering-method mobile`, not `--headless`) | export_presets.cfg |
 
 After applying all of them, run the import again (`--import`) so the new script gets its `.uid` / cache entries.
 
@@ -71,7 +72,7 @@ After applying all of them, run the import again (`--import`) so the new script 
 
 ## 4. Re-bake ONLY the changed parts, then export
 Only 0008 / 0011 (street furniture rows of 18 cells) and 0020 (car LOD meshes) change baked content. All other patches
-(0001-0007, 0009, 0010, 0012-0019, 0021) are runtime code / settings only.
+(0001-0007, 0009, 0010, 0012-0019, 0021, 0022) are runtime code / settings only.
 
 0. Car LODs (0020), incremental, car files only:
    ```
@@ -99,7 +100,9 @@ Run these steps from `project/` instead of the whole of `export_baked.sh` (same 
    godot --headless --path . res://tools/worker/dcut_pkg.tscn -- --merge
    godot --headless --path . res://tools/gray_bake/verify_bakes.tscn
    ```
-4. Export: `godot --headless --path . --export-debug Android /path/to/out/coronado_bugcheck1.apk`
+4. Export (0022: the shader baker needs a real Vulkan renderer, so NOT headless):
+   `godot --path . --rendering-method mobile --export-debug Android /path/to/out/coronado-fix3.apk`
+   (display-less Linux: `xvfb-run -a` in front, with a Vulkan driver). The log must show "Baking shaders".
 
 Then cut the content packs with `tools/pack/split_packs.py` exactly as for earlier builds (packs are content-addressed:
 only the packs whose files changed get new names, so players re-download only those), and run

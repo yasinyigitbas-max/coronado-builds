@@ -1,0 +1,41 @@
+From cbfef4734edcc71c4704d1c620175c529ff2596c Mon Sep 17 00:00:00 2001
+From: bugcheck <bugcheck@local>
+Date: Sat, 7 Nov 2026 13:34:58 +0000
+Subject: [PATCH] Export: Shader Baker on for both Android presets (no
+ first-use shader stalls)
+
+Yasin 7 Nov (item 7): Godot 4.5+ Shader Baker compiles the Vulkan pipeline shaders at export time
+and ships them in the APK, so the phone no longer stalls the first time a material / light
+combination is drawn (PerfProbe 'shader_first' counts in the phone logs). No runtime cost.
+It only bakes when the EXPORT runs with a RenderingDevice renderer matching the target: export
+with --rendering-method mobile on a machine with a Vulkan driver, NOT with --headless (a headless
+or Compatibility editor skips the bake with a warning). See bugcheck1/AGENT_UPDATE.md.
+---
+ export_presets.cfg | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/export_presets.cfg b/export_presets.cfg
+index c1c658ec..d3d229d2 100644
+--- a/export_presets.cfg
++++ b/export_presets.cfg
+@@ -16,6 +16,8 @@ encrypt_directory=false
+ 
+ [preset.0.options]
+ 
++shader_baker/enabled=true
++
+ custom_template/debug=""
+ custom_template/release=""
+ gradle_build/use_gradle_build=true
+@@ -58,6 +60,8 @@ encrypt_directory=false
+ 
+ [preset.1.options]
+ 
++shader_baker/enabled=true
++
+ custom_template/debug=""
+ custom_template/release=""
+ gradle_build/use_gradle_build=true
+-- 
+2.43.0
+
