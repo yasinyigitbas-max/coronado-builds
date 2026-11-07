@@ -55,3 +55,8 @@ send phone PerfProbe / actprobe1 logs periodically: when one arrives, add it to 
 - Wall colour (B, first half): **skipped by Yasin** ("may have been fixed before": bld_atlas_mat sets_on = 0 already). Street
   screenshots (software GL) showed one colour per building.
 - NEXT: B second half (half / misaligned doors and windows scan), then C (pedestrians), then D (CPU perf audit).
+- B second half (doors / windows): the WALL SHADER can't draw half windows / doors (build_buildings.py stretches every
+  wall segment to whole bays `0..round(L/bw)` and whole floors; segments < 1.6 m get no windows; the door owns its whole
+  bay). Remaining suspects are things laid OVER the wall: shop door cuts (CoronadoDoorCut) slicing a painted window,
+  shop fronts covering part of a painted door, facade-kit trims (facade_kit.gd p_window_trim) not on the shader's bay
+  grid. **Waiting for a screenshot / location from Yasin** before changing anything. Moving on to C (pedestrians).
