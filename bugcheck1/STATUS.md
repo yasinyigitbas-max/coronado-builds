@@ -89,3 +89,8 @@ worker restart; re-run it; (3) then D (CPU perf audit).
 - 0012 (pedestrians) + 0013 (frozen buses): test_cityride, test_traffic, test_taxi, test_hitchhike, test_scripted,
   test_positions all PASS. Buses still run (bus_present 2, 13 stops served).
 - NEXT: crowd layer W_WAIT-on-road check (probes/probe_crowdx.gd), then D (CPU perf audit).
+
+## ~06:25 UTC: C (pedestrians) DONE: 0012 + 0013 + 0014
+Crowd walkers (0014): standing still on the road 0 at all 4 audit spots (Hotel del was 61-122). NPC tests pass.
+NEXT: D (CPU performance audit + 60 fps plan). Car junction rework (key bug for cars + one-booking rule) = separate,
+waiting for Yasin.

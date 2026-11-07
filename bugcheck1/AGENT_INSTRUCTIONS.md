@@ -31,7 +31,7 @@ From `project/`, apply every file in `bugcheck1/patches/` **in number order** wi
 git am /path/to/bugcheck1/patches/0001-*.patch
 git am /path/to/bugcheck1/patches/0002-*.patch
 ...
-git am /path/to/bugcheck1/patches/0013-*.patch
+git am /path/to/bugcheck1/patches/0014-*.patch
 ```
 
 | Patch | What it fixes | Files |
@@ -49,6 +49,7 @@ git am /path/to/bugcheck1/patches/0013-*.patch
 | 0011 | Incremental re-bake: undoes 0008's `CellPkg.VERSION` bump; the game prints `DOOR_CLEAR_CELLS x_z,...` (the 18 changed cells) | perf/cell_pkg.gd, furniture_layer.gd |
 | 0012 | Pedestrians walk on real sidewalks, turn corners, wait at the kerb (junction table key bug) | traffic/traffic_sim.gd |
 | 0013 | No frozen buses (still player at a stand; bus locked in a junction box) | traffic/traffic_sim.gd |
+| 0014 | Crowd walkers wait for green only at the kerb, never in the middle of a crossing | map_dc/coronado/npc/crowd_layer.gd |
 
 After applying all of them, run the import again (`--import`) so the new script gets its `.uid` / cache entries.
 

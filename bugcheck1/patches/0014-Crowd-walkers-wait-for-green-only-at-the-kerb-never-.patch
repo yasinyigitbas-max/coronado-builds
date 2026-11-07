@@ -1,0 +1,36 @@
+From 278199fdc7ce060c7a2cc27635d97245fe937875 Mon Sep 17 00:00:00 2001
+From: bugcheck <bugcheck@local>
+Date: Sat, 7 Nov 2026 06:30:06 +0000
+Subject: [PATCH] Crowd: walkers wait for green only at the kerb, never
+ mid-crossing
+
+Signalled crossings in walk_graph are split into several crossing segments (322 of 974
+of their nodes lie inside the carriageway, median 2.4 m, up to 10.7 m in). _next_leg
+waited for green at every one, so a walker caught mid-road by the light change stood
+in the street for a whole red phase. Only the kerb -> crossing step waits now.
+Crowd 'still for > 3 s on the road' 61-122 samples at Hotel del -> 0 at all 4 spots.
+test_npc_three / test_b9_npc / test_npc_glow PASS.
+---
+ map_dc/coronado/npc/crowd_layer.gd | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/map_dc/coronado/npc/crowd_layer.gd b/map_dc/coronado/npc/crowd_layer.gd
+index 7b9546d8..7df71d68 100644
+--- a/map_dc/coronado/npc/crowd_layer.gd
++++ b/map_dc/coronado/npc/crowd_layer.gd
+@@ -953,7 +953,11 @@ func _next_leg(a: Agent, t_sig: float) -> bool:
+ 		var n0 := int(a.route[a.ri]); var n1 := int(a.route[a.ri + 1])
+ 		var s: int = seg_of.get(n0 * 65536 + n1, -1)
+ 		if s < 0: return false
+-		if seg_kind[s] == 1 and seg_ctl[s] >= 0 and roads:
++		# bugcheck peds: signalled crossings are split into several crossing segments (322 of 974 of their nodes lie inside
++		# the carriageway, up to 10.7 m in): waiting for green at EVERY one stopped walkers mid-road for a whole red phase.
++		# Only the step from the kerb onto the crossing waits; a walker already on it finishes crossing.
++		var on_crossing: bool = a.cur_seg >= 0 and seg_kind[a.cur_seg] == 1
++		if seg_kind[s] == 1 and seg_ctl[s] >= 0 and roads and not on_crossing:
+ 			var c: Dictionary = roads.controls[seg_ctl[s]]
+ 			if c.has("approaches") and not c["approaches"].is_empty():
+ 				var dirv := (node_xz[n1] - node_xz[n0]).normalized(); var best := 0; var bd := -1.0
+-- 
+2.43.0
+
