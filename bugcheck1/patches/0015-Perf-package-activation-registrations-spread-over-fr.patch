@@ -1,0 +1,158 @@
+From 9c061691bd88df9ec81aacdc1a4470e8d76e110a Mon Sep 17 00:00:00 2001
+From: bugcheck <bugcheck@local>
+Date: Sat, 7 Nov 2026 11:51:10 +0000
+Subject: [PATCH 15/17] Perf: package activation registrations spread over
+ frames (phone hitch 30-40 ms -> one step per frame)
+
+Phone logs 7 Nov (Samsung Adreno 740 + Redmi Mali-G610, one lap each): every cell package
+that went live mid-drive did road CellMerge register + furniture merge register + breakables
+geometry + terrain swap in the same frame as its add_child (pkg.post_add 30-40 ms; 64 / 36
+of the >50 ms lap frames were bldg_add_tree). Outside the load screen these four steps now
+run one per frame after the add (terrain swap first), two per frame when a backlog builds;
+nothing pops (every piece draws from its own package node until its cell merge is built),
+and a package freed before its steps ran drops them. Load screen / prebuild: unchanged.
+Headless: all live packages swapped terrain + registered furniture after spawn (same as
+before); test_breakables, test_tree_col, test_save, test_cityride, test_traffic PASS.
+---
+ map_dc/coronado/furniture/furniture_layer.gd | 16 +++--
+ map_dc/coronado/tests/coronado_layers.gd     | 64 +++++++++++++++++---
+ 2 files changed, 65 insertions(+), 15 deletions(-)
+
+diff --git a/map_dc/coronado/furniture/furniture_layer.gd b/map_dc/coronado/furniture/furniture_layer.gd
+index 60fe2060..c80a30a5 100644
+--- a/map_dc/coronado/furniture/furniture_layer.gd
++++ b/map_dc/coronado/furniture/furniture_layer.gd
+@@ -415,7 +415,7 @@ func _chunk_add(n: Node3D, k: Vector2i) -> void:
+ 	_far_register(n); _cell_register(n); PP.end(&"furn_add")
+ 
+ ## gray-cellpkg: a package part goes live / out (breakables are the only per-chunk runtime work: they break)
+-func _pkg_on(k: Vector2i, fp: Node3D) -> void:
++func _pkg_on(k: Vector2i, fp: Node3D, brk_later := false) -> void:
+ 	var ap := AP.begin("furn.pkg_on", str(k), fp.get_instance_id(), fp.get_child_count())
+ 	var ar := AP.begin("furn.merge_register", str(k), fp.get_instance_id())
+ 	live[k] = fp
+@@ -427,6 +427,10 @@ func _pkg_on(k: Vector2i, fp: Node3D) -> void:
+ 	ar = AP.begin("furn.physics_queue_breakables", str(k), fp.get_instance_id())
+ 	# perf-src3: queue trunk collider create (was unbounded tree loop mid-drive); drained under TRUNK_BUDGET_US
+ 	_trunk_q.append([k, fp, 0])
++	if not brk_later: _pkg_brk(k, fp)   # bugcheck1 0015: staged activation attaches them a frame later (pkg_breakables)
++	AP.end(ar)
++	AP.end(ap)
++func _pkg_brk(k: Vector2i, fp: Node3D) -> void:
+ 	var brk: Array = fp.get_meta(&"brk", [])
+ 	if not brk.is_empty() and fp.get_node_or_null(^"breakables") == null:
+ 		CoronadoBreakables.attach(self, fp, brk)
+@@ -434,8 +438,6 @@ func _pkg_on(k: Vector2i, fp: Node3D) -> void:
+ 		if B and B.has_meta(&"rec") and cellmerge:
+ 			var Bk := get_tree().root.get_node_or_null(^"Breakables")
+ 			if Bk: Bk.cell_register(B.get_meta(&"rec"), false)
+-	AP.end(ar)
+-	AP.end(ap)
+ ## visual-src5: remove the trunk shape owners of an unfinished drain of this package part (ids in body meta "trunk_so")
+ func _trunks_abort(fp: Variant) -> void:
+ 	if not (is_instance_valid(fp) and fp is Node3D): return
+@@ -464,12 +466,16 @@ func _brk_strip(fp: Node3D) -> void:
+ 		B.free()
+ 	var bc := fp.get_node_or_null(^"breakable_colliders")
+ 	if bc: bc.free()
+-func pkg_added(k: Vector2i) -> void:
++func pkg_added(k: Vector2i, brk_later := false) -> void:
+ 	# t172: CellPkg packages are adopted by buildings layer; furn parts are visible under pkg_*/furn_*
+ 	# without furniture.live unless we register here. Enables CellMerge/FarMerge on valid caches.
+ 	if live.has(k): return
+ 	var fp := CellPkg.part(k, "furn") as Node3D
+-	if fp: _pkg_on(k, fp)
++	if fp: _pkg_on(k, fp, brk_later)
++## bugcheck1 0015: second stage of a staged package activation (no-op when the scan already attached them)
++func pkg_breakables(k: Vector2i) -> void:
++	var fp: Variant = live.get(k)
++	if is_instance_valid(fp) and fp is Node3D and is_same(fp, CellPkg.part(k, "furn")): _pkg_brk(k, fp)
+ func pkg_freed(k: Vector2i) -> void:
+ 	if live.has(k): _pkg_off(k)
+ 
+diff --git a/map_dc/coronado/tests/coronado_layers.gd b/map_dc/coronado/tests/coronado_layers.gd
+index d25e3da1..282ad30a 100644
+--- a/map_dc/coronado/tests/coronado_layers.gd
++++ b/map_dc/coronado/tests/coronado_layers.gd
+@@ -404,6 +404,7 @@ func _process(_dt: float) -> void:
+ 				if pp: pp.ld_end(bld_scene[k])   # minion2-perf56 #6
+ 				bld_live.erase(k); _bld_loading.erase(k)
+ 	if pp: pp.end(&"bld_lds")
++	_pkg_steps_tick(n_add)
+ 	if pp and n_add > 0: pp.count(&"bldg_add_n", n_add)
+ 	if pp: pp.begin(&"bld_rel")
+ 	for i in range(_rel_inst.size() - 1, -1, -1):   # brown-perfrescue6: worker instances of chunks dropped meanwhile
+@@ -560,17 +561,60 @@ func _pkg_added(k: Vector2i, n: Node3D) -> void:
+ 	if rm: _pkg_road_mi[k] = rm; _pkg_road_dirty = true; _share_shaders(rm)
+ 	# t172: CellPkg road path skipped RoadCells CellMerge — register from live meshes
+ 	AP.end(ap)
+-	ap = AP.begin("pkg.road_register", str(k), n.get_instance_id())
+-	if rd: _road_cell_register(k, rd)
+-	AP.end(ap)
+-	ap = AP.begin("pkg.furniture_register", str(k), n.get_instance_id())
+-	if furniture and furniture.has_method(&"pkg_added"): furniture.pkg_added(k)
+-	AP.end(ap)
+-	ap = AP.begin("pkg.terrain_live", str(k), n.get_instance_id())
+-	var w := get_parent()
+-	if w and w.has_method(&"pkg_terrain_live"): w.pkg_terrain_live(k)
+-	AP.end(ap)
++	# bugcheck1 0015 (phone logs 7 Nov, Samsung + Redmi: a package going live mid-drive cost 30-40 ms in ONE frame:
++	# road CellMerge register + furniture merge register + breakables geometry + terrain swap). Outside the load
++	# screen the four registrations run one per frame after the add (PKG_STEP_*). Nothing pops: until its cell merge
++	# is built every piece keeps drawing from its own package node, colliders / road_live are set above, and a
++	# package dropped before its steps ran drops them (_pkg_freed).
++	if PKG_STEPPED and not prebuild_active:
++		_pkg_steps.append([k, n, 0]); return
++	for st in PKG_STEP_N: _pkg_step(k, rd, st, false)
++const PKG_STEPPED := true
++const PKG_STEP_N := 4   # 0 terrain swap (cheap, first: no doubled ground), 1 road register, 2 furniture merge register, 3 breakables
++var _pkg_steps: Array = []   # [k, package node, next step]
++func _pkg_step(k: Vector2i, rd: Node3D, st: int, staged: bool) -> void:
++	var id := rd.get_instance_id() if rd else 0
++	match st:
++		1:
++			var ap := AP.begin("pkg.road_register", str(k), id)
++			if rd: _road_cell_register(k, rd)
++			AP.end(ap)
++		2:
++			var ap := AP.begin("pkg.furniture_register", str(k), id)
++			if furniture and furniture.has_method(&"pkg_added"): furniture.pkg_added(k, staged)
++			AP.end(ap)
++		3:
++			if staged and furniture and furniture.has_method(&"pkg_breakables"):
++				var ap := AP.begin("pkg.breakables", str(k), id)
++				furniture.pkg_breakables(k)
++				AP.end(ap)
++		0:
++			var ap := AP.begin("pkg.terrain_live", str(k), id)
++			var w := get_parent()
++			if w and w.has_method(&"pkg_terrain_live"): w.pkg_terrain_live(k)
++			AP.end(ap)
++## one queued registration step per frame (the frame of a package add runs none); a backlog (several packages in a
++## row) runs two per frame so it never trails the streaming by more than a few frames
++func _pkg_steps_tick(n_add: int) -> void:
++	if _pkg_steps.is_empty(): return
++	if n_add > 0 and _pkg_steps.size() < 4: return
++	var pp := _ppn()
++	if pp: pp.begin(&"pkg_steps")
++	var todo := 1 if _pkg_steps.size() < 4 else 2
++	while todo > 0 and not _pkg_steps.is_empty():
++		var e: Array = _pkg_steps[0]
++		var k: Vector2i = e[0]
++		if not is_instance_valid(e[1]) or not is_same(bld_live.get(k), e[1]): _pkg_steps.pop_front(); continue   # package gone / replaced
++		var rd: Node3D = road_live.get(k) as Node3D if road_live.get(k) is Node3D else null
++		_pkg_step(k, rd, int(e[2]), true); todo -= 1
++		e[2] = int(e[2]) + 1
++		if int(e[2]) >= PKG_STEP_N: _pkg_steps.pop_front()
++	if pp: pp.end(&"pkg_steps")
++func _pkg_steps_flush(k: Vector2i) -> void:   # package freed: its pending steps are dropped (pkg_freed undoes what ran)
++	for i in range(_pkg_steps.size() - 1, -1, -1):
++		if _pkg_steps[i][0] == k: _pkg_steps.remove_at(i)
+ func _pkg_freed(k: Vector2i) -> void:
++	_pkg_steps_flush(k)
+ 	road_live.erase(k)
+ 	_pkg_road_mi.erase(k); _pkg_road_far.erase(k); _pkg_road_dirty = true
+ 	if furniture and furniture.has_method(&"pkg_freed"): furniture.pkg_freed(k)
+-- 
+2.43.0
+

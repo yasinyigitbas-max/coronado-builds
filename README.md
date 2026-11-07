@@ -30,3 +30,8 @@ Coronado content packs (binary only)
 - **City Ride**: a taxi now reaches all 14 stands (2 never got one); typical wait about 100 s → about 50 s (Hotel del 4.5 min → 1.5 min).
 - **Performance**: duplicate "shadow" trees are no longer drawn (15 fewer draw calls near spawn); traffic logic costs about 3% more sim time.
 - **Logs**: timing logs no longer pile up on the phone.
+- **Shops look furnished from the door** (0017): the counter, tables and staff were hidden until you stepped about
+  a metre inside ([before / after](bugcheck1/img/0017_shop_doorway_before_after.png)).
+- **Fewer stutters while driving** (0015, 0016, from the Samsung + Redmi phone logs): city blocks that appear while
+  you drive spread their setup over several frames (was 30-40 ms in one frame), and the 900 Orange Ave fuel station
+  no longer costs a 70 ms frame.

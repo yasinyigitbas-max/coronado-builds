@@ -57,3 +57,31 @@ I compare `pkg.road_register` / `pkg.furniture_register` / `res_sync_load` again
 the spikes, fix 1a is next (about 2–3 h including tests).
 
 Tools: `bugcheck1/tools/perf_audit.py run_X.csv` prints this ranking for any PerfProbe CSV.
+
+## Phone logs, 7 Nov 2026 (build `…-activationopt1a-bugcheck1-update2-src6`, one benchmark lap each)
+| | Samsung (Adreno 740) | Redmi (Mali-G610) |
+|---|---|---|
+| Lap frames / time | 12,589 / 239 s | 15,140 / 238 s |
+| Frame time mean / p50 / p99 | 19.0 / 17.1 / 50.5 ms | 15.7 / 14.6 / 43.1 ms |
+| Script time (proc_ms) mean / p99 | 8.0 / 31.5 ms | 7.2 / 26.1 ms |
+| Frames > 33 ms / > 50 ms / > 100 ms | 734 / 128 / 7 | 286 / 67 / 9 |
+
+Most > 50 ms frames have a script spike (proc ~21 ms on average in the bad frames), not a GPU problem.
+
+**What causes the > 50 ms frames (after the first 5 s of the lap)**
+1. **Cell package going live mid-drive** (`bldg_add_tree`: 64 of 117 frames on the Samsung, 36 of 52 on the Redmi).
+   The activation JSONL shows it is the registrations after `add_child` (not the add itself): furniture merge register
+   up to 12–28 ms, road CellMerge register up to 12–14 ms, breakables geometry up to 15 ms, interior kit adoption
+   up to 10 ms, all in one frame (30–40 ms per activation). **Fixed by 0015**: one step per frame.
+2. Physics server (`phys_srv`, 24 / 7 frames): collider registration of the same packages. Not changed yet.
+3. **Fuel station at 900 Orange Ave**: 71 ms (Samsung) / 74 ms (Redmi) in one frame at t ≈ 67 s.
+   **Fixed by 0016**: built in 4 stages, 0.5 s apart.
+4. `late_deferred` (call_deferred work) 30–54 ms on a few frames: the profiler does not say which call yet.
+5. One-off driver stalls: Redmi `bld_far_swap` 251 ms (one far-mesh upload), Samsung `far_gate` 180 ms with
+   draw / swap 130 ms. They are inside the graphics driver, not script. Watch whether they repeat.
+6. Lap start (spawn cell activation, 93–98 ms: breakables first use 58 ms, road setup 18–41 ms) happens right after
+   the loading screen, once.
+
+**Next run:** same lap on the build with 0015–0017. Expect the `bldg_add_tree` frames and the fuel station frame to
+drop out of the > 50 ms list. Tool: `bugcheck1/tools/act_route.py run_X.csv activation_X.jsonl` prints the lap-only
+activation breakdown.

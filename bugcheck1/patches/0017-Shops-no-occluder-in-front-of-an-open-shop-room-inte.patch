@@ -1,0 +1,200 @@
+From 963bd30ab7614de9360a4b39598d9c1d37f68618 Mon Sep 17 00:00:00 2001
+From: bugcheck <bugcheck@local>
+Date: Sat, 7 Nov 2026 11:51:10 +0000
+Subject: [PATCH 17/17] Shops: no occluder in front of an open shop room
+ (interior looked empty from the door)
+
+Yasin 7 Nov (phone screenshots, Crownado Beach Coffee): right after Open the shop looked
+empty from the door; counter, machines, tables and staff appeared ~1 m inside. Cause: the
+shop-street occluders (shops_layer black-dc-perf31) put one quad 0.8 m behind every shop
+facade with no door hole, so occlusion culling dropped every room piece wholly behind it
+until the camera passed it. While a room is live (loaded on its door's Use, freed when the
+player leaves) its point 1.2 m inside the door is listed in CoronadoShopInterior.occ_holes;
+the facade quad of that front (and, as a safety net, any building footprint occluder that
+contains the point) is left out and comes back when the room is freed. Rendered check
+(xvfb, opengl3): doorway view now shows the room's furniture (was an empty floor).
+---
+ .../shops/interior/interiors_layer.gd         | 14 ++++++
+ .../coronado/shops/interior/shop_interior.gd  |  8 ++++
+ map_dc/coronado/shops/shops_layer.gd          | 30 ++++++++++--
+ map_dc/coronado/tests/coronado_layers.gd      | 46 +++++++++++++++++--
+ 4 files changed, 89 insertions(+), 9 deletions(-)
+
+diff --git a/map_dc/coronado/shops/interior/interiors_layer.gd b/map_dc/coronado/shops/interior/interiors_layer.gd
+index e7f5d6f1..03759efc 100644
+--- a/map_dc/coronado/shops/interior/interiors_layer.gd
++++ b/map_dc/coronado/shops/interior/interiors_layer.gd
+@@ -472,6 +472,7 @@ func _process_pp_interiors_layer(dt: float) -> void:
+ 	_track_speed(p, _acc)
+ 	_acc = 0.0
+ 	_pb(&"shop_census"); _census(0.25); _pe(&"shop_census")
++	_occ_holes_step()
+ 	_panels_step(p)
+ 	var R := radii(); var PRE := R.x; var NEAR_R := R.y; var FAR_R := R.z
+ 	var driving := CoronadoPublicLayer.in_car(get_tree()) and _spd >= CAR_BUILD_SPD   # blue-dc-perf5 / fix19: slow car builds
+@@ -519,6 +520,19 @@ func _process_pp_interiors_layer(dt: float) -> void:
+ 	CoronadoShopInterior.door_rush = not _rush.is_empty()   # read by CoronadoBuildings / FurnitureLayer
+ 
+ 
++## bugcheck1 0017: live rooms -> CoronadoShopInterior.occ_holes (the occluders in front of them are left out)
++func _occ_holes_step() -> void:
++	var want := {}
++	for k: String in live:
++		var rv: Variant = live[k].get("room")
++		if is_instance_valid(rv) and (rv as Node).is_inside_tree():
++			var d: Vector3 = (rv as CoronadoShopInterior).door_inside()
++			want[k] = Vector2(d.x, d.z)
++	var H: Dictionary = CoronadoShopInterior.occ_holes
++	if want.size() == H.size() and want.keys().all(func(k) -> bool: return H.has(k)): return
++	CoronadoShopInterior.occ_holes = want; CoronadoShopInterior.occ_ver += 1
++	if is_instance_valid(shops) and shops.has_method(&"facade_occluders_refresh"): shops.facade_occluders_refresh()
++
+ ## gray-cellpkg: rooms prebaked into cell packages (complete: shell, goods, lights, door cut). They are woken (contents
+ ## shown, buy points + staff made) inside the same build radius as built rooms and put back to sleep past the drop
+ ## radius; never built, never paused while driving: the room is ready as soon as its package is in (~r_bld out).
+diff --git a/map_dc/coronado/shops/interior/shop_interior.gd b/map_dc/coronado/shops/interior/shop_interior.gd
+index dfbd5dd8..7ab38d57 100644
+--- a/map_dc/coronado/shops/interior/shop_interior.gd
++++ b/map_dc/coronado/shops/interior/shop_interior.gd
+@@ -227,6 +227,14 @@ var waiting := false
+ ## gray-dc-fixes3 fix19: set by the interiors layer while a shop next to the player's door is building; far-area loads
+ ## and furniture chunk merges yield their frame time to it
+ static var door_rush := false
++## bugcheck1 0017 (Yasin 7 Nov, phone screenshots: from the open door the shop looked empty, counter / machines / tables /
++## staff appeared only ~1 m inside). The street occluders stood in front of the room with no door hole: the shop facade
++## quad 0.8 m behind every shop front (shops_layer) and the building footprint prisms (coronado_layers). Occlusion culling
++## then dropped every piece wholly inside the building until the camera passed them. While a room is live (loaded on
++## its door's Use, freed when the player walks away) its point 1.2 m inside the door is listed here; both occluder sets
++## leave out the quad / building that contains it, so the room is drawn through the doorway. Everything else unchanged.
++static var occ_holes: Dictionary = {}   # shop key -> Vector2 (world x, z) just inside its door
++static var occ_ver := 0
+ var _ph := 0                    ## 0 init, 1 tex, 2 shell ops, 3 merge shell, 4 slots, 5 items, 6 goods, 7 merge pieces, 8 reach start, 9 reach wait, 10 done
+ var _ops: Array[Callable] = []
+ var _later_q: Array[Callable] = []
+diff --git a/map_dc/coronado/shops/shops_layer.gd b/map_dc/coronado/shops/shops_layer.gd
+index 9de59ea1..19f4243a 100644
+--- a/map_dc/coronado/shops/shops_layer.gd
++++ b/map_dc/coronado/shops/shops_layer.gd
+@@ -585,7 +585,8 @@ func _bay_mesh(fronts: Array, org: Vector3) -> Mesh:
+ ## --noocclusion disables (same switch as the terrain occluders).
+ func _facade_occluders() -> void:
+ 	if bays.is_empty() or "--noocclusion" in OS.get_cmdline_user_args(): return
+-	var V := PackedVector3Array(); var I := PackedInt32Array(); var done := {}
++	var done := {}
++	_fac_q.clear()
+ 	for f: Dictionary in data.fronts:
+ 		if not bays.has(f.key): continue
+ 		var p: Dictionary = bays[f.key]
+@@ -598,12 +599,31 @@ func _facade_occluders() -> void:
+ 		var y0: float = float(p.y0); var y1: float = float(p.gy) + float(p.fh) * float(p.nf) - 0.4
+ 		if y1 - y0 < 2.0: continue
+ 		var q0 := a + t * 0.5 - n * 0.8; var q1 := b - t * 0.5 - n * 0.8
++		_fac_q.append([a, b, PackedVector3Array([Vector3(q0.x, y0, q0.y), Vector3(q1.x, y0, q1.y), Vector3(q1.x, y1, q1.y), Vector3(q0.x, y1, q0.y)])])
++	_fac_apply()
++## bugcheck1 0017: [a, b, quad] per shop facade; a live room's facade quad is left out (CoronadoShopInterior.occ_holes)
++var _fac_q: Array = []
++var _fac_oi: OccluderInstance3D
++var _fac_ver := -1
++func facade_occluders_refresh() -> void:
++	if _fac_ver != CoronadoShopInterior.occ_ver and not _fac_q.is_empty(): _fac_apply()
++func _fac_apply() -> void:
++	_fac_ver = CoronadoShopInterior.occ_ver
++	var holes: Array = CoronadoShopInterior.occ_holes.values()
++	var V := PackedVector3Array(); var I := PackedInt32Array()
++	for q: Array in _fac_q:
++		var skip := false
++		for h: Vector2 in holes:
++			if h.distance_to(Geometry2D.get_closest_point_to_segment(h, q[0], q[1])) < 4.0: skip = true; break
++		if skip: continue
+ 		var o := V.size()
+-		V.append_array([Vector3(q0.x, y0, q0.y), Vector3(q1.x, y0, q1.y), Vector3(q1.x, y1, q1.y), Vector3(q0.x, y1, q0.y)])
++		V.append_array(q[2])
+ 		I.append_array([o, o + 1, o + 2, o, o + 2, o + 3])
+-	if I.is_empty(): return
++	if _fac_oi == null:
++		if I.is_empty(): return
++		_fac_oi = OccluderInstance3D.new(); _fac_oi.name = "ShopFacadeOccluders"
++		add_child(_fac_oi); _fac_oi.top_level = true; _fac_oi.global_transform = Transform3D.IDENTITY
+ 	var ao := ArrayOccluder3D.new(); ao.set_arrays(V, I)
+-	var oi := OccluderInstance3D.new(); oi.name = "ShopFacadeOccluders"; oi.occluder = ao
+-	add_child(oi); oi.top_level = true; oi.global_transform = Transform3D.IDENTITY
++	_fac_oi.occluder = ao
+ 	occluder_quads = I.size() / 6
+ var occluder_quads := 0
+diff --git a/map_dc/coronado/tests/coronado_layers.gd b/map_dc/coronado/tests/coronado_layers.gd
+index 282ad30a..6f03a2b0 100644
+--- a/map_dc/coronado/tests/coronado_layers.gd
++++ b/map_dc/coronado/tests/coronado_layers.gd
+@@ -727,8 +727,22 @@ func update_occluders() -> void:
+ 	var p := _tp(); var r := _occ_radius(); var n := 0
+ 	# gray-dc-fixes1 (steady cost): re-check only after OCC_MOVE_M of movement or a building chunk came / went
+ 	# (a chunk going away also sets _occ_force, so an occluder never outlives its building)
+-	if not _occ_force and bld_live.size() == _occ_nlive and Vector2(p.x, p.z).distance_to(_occ_p) <= OCC_MOVE_M: return
++	var hv: int = CoronadoShopInterior.occ_ver
++	if not _occ_force and hv == _occ_hver and bld_live.size() == _occ_nlive and Vector2(p.x, p.z).distance_to(_occ_p) <= OCC_MOVE_M: return
+ 	_occ_force = false; _occ_nlive = bld_live.size(); _occ_p = Vector2(p.x, p.z)
++	if hv != _occ_hver:   # bugcheck1 0017: a shop room opened / freed: rebuild the groups whose skip set changed
++		_occ_hver = hv
++		var holes: Array = CoronadoShopInterior.occ_holes.values()
++		for key: String in occ_groups:
++			var G: Dictionary = occ_groups[key]
++			var sk := _occ_skip(G, holes)
++			if sk != G.get("skip", PackedInt32Array()):
++				G.skip = sk
++				var o: Variant = G.get("node")
++				if o != null and is_instance_valid(o):
++					if (o as Node).get_parent(): (o as Node).get_parent().remove_child(o)
++					(o as Node).queue_free()
++				G.node = null
+ 	for key: String in occ_groups:
+ 		var G: Dictionary = occ_groups[key]; var src: Vector2i = G.src
+ 		var on := Vector2(src.x * 100 + 50, src.y * 100 + 50).distance_to(Vector2(p.x, p.z)) < r
+@@ -738,7 +752,7 @@ func update_occluders() -> void:
+ 		var oi: OccluderInstance3D = G.node
+ 		if on and oi == null:
+ 			# unique per group (the key's src part alone collides -> "@OccluderInstance3D@N" auto-renames)
+-			oi = _make_occluder(G.data); oi.name = "Occ_" + key.validate_node_name().replace(",", "_").replace("|", "_").replace("-", "m"); G.node = oi
++			oi = _make_occluder(G.data, G.get("skip", PackedInt32Array())); oi.name = "Occ_" + key.validate_node_name().replace(",", "_").replace("|", "_").replace("-", "m"); G.node = oi
+ 		if on and oi.get_parent() == null: occ_root.add_child(oi)
+ 		elif not on and oi:   # black-dc-perf6: free out-of-range occluders (parking them off-tree leaked 255-340 orphans)
+ 			if oi.get_parent(): oi.get_parent().remove_child(oi)
+@@ -746,10 +760,34 @@ func update_occluders() -> void:
+ 		if on: n += 1
+ 	stats.occluders = n
+ 
++var _occ_hver := 0
++## bugcheck1 0017: indices of the group's buildings whose footprint holds a live shop room's door point
++func _occ_skip(G: Dictionary, holes: Array) -> PackedInt32Array:
++	var out := PackedInt32Array()
++	if holes.is_empty(): return out
++	if not G.has("bb"):
++		var bb := Rect2(); var first := true
++		for b: Array in G.data:
++			for i in range(2, b.size(), 2):
++				var q := Vector2(b[i], b[i + 1])
++				if first: bb = Rect2(q, Vector2.ZERO); first = false
++				else: bb = bb.expand(q)
++		G.bb = bb.grow(1.0)
++	var near := false
++	for h: Vector2 in holes: if (G.bb as Rect2).has_point(h): near = true; break
++	if not near: return out
++	for j in (G.data as Array).size():
++		var b: Array = G.data[j]; var pts := PackedVector2Array()
++		for i in range(2, b.size(), 2): pts.append(Vector2(b[i], b[i + 1]))
++		for h: Vector2 in holes:
++			if Geometry2D.is_point_in_polygon(h, pts): out.append(j); break
++	return out
+ ## one ArrayOccluder3D per group: every building = inset footprint prism (walls + triangulated roof, no floor needed)
+-static func _make_occluder(list: Array) -> OccluderInstance3D:
++static func _make_occluder(list: Array, skip := PackedInt32Array()) -> OccluderInstance3D:
+ 	var V := PackedVector3Array(); var I := PackedInt32Array()
+-	for b: Array in list:
++	for j in list.size():
++		if skip.has(j): continue
++		var b: Array = list[j]
+ 		var y0: float = b[0]; var y1: float = b[1]; var pts := PackedVector2Array()
+ 		for i in range(2, b.size(), 2): pts.append(Vector2(b[i], b[i + 1]))
+ 		var m := pts.size(); var base := V.size()
+-- 
+2.43.0
+

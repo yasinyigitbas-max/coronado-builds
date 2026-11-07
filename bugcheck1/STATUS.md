@@ -110,3 +110,13 @@ Steady state within budget (script 3.3-3.7 ms mean). Only measured play-time hit
 (spread registration over frames, no re-bake) waits for Yasin's phone actprobe1 logs to confirm.
 Queue empty. Waiting for Yasin: phone logs (perf), example screenshots (half doors / windows), go / no-go for the car
 junction rework (key bug for cars + one-booking rule) and the turn-curve fix.
+
+## Phone logs 7 Nov (Samsung + Redmi) → 0015-0017
+- Analysed both laps (PERF_AUDIT.md "Phone logs"). Main stutter = package activation registrations in one frame.
+- 0015 staged activation, 0016 staged fuel station, 0017 shop occluder hole (Yasin's screenshots).
+- Tests with 0015-0017: test_breakables, test_tree_col, test_save, test_cityride, test_traffic (0 collisions),
+  test_fuel PASS. test_prop_collision: blocked door count varies run to run on BOTH old and new code (old 1/1,
+  new 4/2); every blocked door is in the 18 DOOR_CLEAR_CELLS waiting for the re-bake (old packages still have the
+  props there). Probe: all live packages terrain-swapped + furniture-registered after spawn (same as before).
+- 0017 rendered check (xvfb opengl3): doorway shows the furniture (was empty floor). img/0017_shop_doorway_before_after.png
+- Next: cloud benchmark lap with 0015 to confirm no regression; then wait for the next phone logs.

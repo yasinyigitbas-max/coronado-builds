@@ -31,7 +31,7 @@ From `project/`, apply every file in `bugcheck1/patches/` **in number order** wi
 git am /path/to/bugcheck1/patches/0001-*.patch
 git am /path/to/bugcheck1/patches/0002-*.patch
 ...
-git am /path/to/bugcheck1/patches/0014-*.patch
+git am /path/to/bugcheck1/patches/0017-*.patch
 ```
 
 | Patch | What it fixes | Files |
@@ -50,6 +50,9 @@ git am /path/to/bugcheck1/patches/0014-*.patch
 | 0012 | Pedestrians walk on real sidewalks, turn corners, wait at the kerb (junction table key bug) | traffic/traffic_sim.gd |
 | 0013 | No frozen buses (still player at a stand; bus locked in a junction box) | traffic/traffic_sim.gd |
 | 0014 | Crowd walkers wait for green only at the kerb, never in the middle of a crossing | map_dc/coronado/npc/crowd_layer.gd |
+| 0015 | Perf: a cell package going live mid-drive registers road / furniture / breakables / terrain one step per frame (phone hitch 30-40 ms) | map_dc/coronado/tests/coronado_layers.gd, furniture/furniture_layer.gd |
+| 0016 | Perf: fuel station built in 4 stages 0.5 s apart (phone 71-74 ms frame) | vehicles/fuel/fuel_stations.gd |
+| 0017 | Shops: the street occluder behind an open shop's front is left out while its room is loaded (shop looked empty from the door) | shops/shops_layer.gd, shops/interior/interiors_layer.gd, shops/interior/shop_interior.gd, tests/coronado_layers.gd |
 
 After applying all of them, run the import again (`--import`) so the new script gets its `.uid` / cache entries.
 
@@ -63,7 +66,7 @@ After applying all of them, run the import again (`--import`) so the new script 
   **"Coronado bugcheck1: bug fixes + smarter traffic (experimental)"**.
 
 ## 4. Re-bake ONLY the changed parts, then export
-Only 0008 / 0011 change baked content (street furniture rows of 18 cells). 0001-0007, 0009, 0010 are runtime code only.
+Only 0008 / 0011 change baked content (street furniture rows of 18 cells). All other patches (0001-0007, 0009, 0010, 0012-0017) are runtime code only.
 Run these steps from `project/` instead of the whole of `export_baked.sh` (same commands as in that script):
 
 1. Furniture chunk merges + static furniture cells (these tools have no partial mode; they rewrite unchanged chunks
@@ -106,6 +109,7 @@ are `extends Node` scenes. The bug check used `bugcheck1/tools/late_launch.gd`:
 | tests/minion/test_prop_collision.gd | `DOORWAYS ... blocked=0` (was 2-10); other lines unchanged |
 | tests/core/test_save.gd, tests/core/test_story.gd | PASS, no "previously freed" errors |
 | tests/ui/test_wardrobe.gd | finishes (no hang); only "rows from the creator choices" fails (outdated: men now have 5 tops) |
+| tests/world_fx/test_breakables.gd, tests/fuel/test_fuel.gd | PASS |
 | `tools/gray_bake/verify_bakes.tscn` (part of export_baked.sh) | its usual PASS |
 
 Known outdated tests that fail **before and after** these fixes are listed in `TEST_RESULTS.md`; don't "fix" them
@@ -119,7 +123,10 @@ Install over the existing app (same signer). Things to look at:
 4. Watch traffic downtown: cars move into the turn lane before junctions, pass slow cars, sometimes park at the kerb.
 5. CityRide from Hotel del: a taxi arrives in about 1.5 minutes (was 4.5 minutes or never).
 6. Send logs: the zip holds only the last 2 sessions' perf files.
-7. Compare frame times with the previous actprobe1 run (same route): the tree fix (0006) should lower draw calls.
+7. Compare frame times with the previous actprobe1 run (same route): the tree fix (0006) should lower draw calls;
+   0015 / 0016 should remove most > 50 ms frames while driving (block activation, fuel station).
+8. Open Crownado Beach Coffee (or any shop) and look in from the door: the counter, machines, tables and staff are
+   visible before you step in (0017).
 
 ## 7. Not in this build (reported, not fixed)
 - 4 NPC lines without voice clips (barista greet / no_money, passer-by cafe / beach): need recordings.

@@ -1,0 +1,91 @@
+From 4dc01a536fa7eff28cb84d7aa7d2980f4e137408 Mon Sep 17 00:00:00 2001
+From: bugcheck <bugcheck@local>
+Date: Sat, 7 Nov 2026 11:51:10 +0000
+Subject: [PATCH 16/17] Perf: fuel station streaming build in stages (phone
+ 71-74 ms frame at 900 Orange Ave)
+
+Phone logs 7 Nov: proc_fuel_stations 71 ms (Samsung) / 74 ms (Redmi) in one frame when the
+900 Orange Ave station streamed in. Cloud split of that build: C-store room + props 30 ms,
+canopy cut of the baked chunk 20 ms, forecourt 6 ms. Streaming builds now make the
+forecourt first and the C-store, the station building and the chunk cut on the next three
+0.5 s ticks (built at 250 m, long before the player arrives). A direct build() call (tests,
+gameplay) is unchanged. test_fuel PASS.
+---
+ vehicles/fuel/fuel_stations.gd | 39 +++++++++++++++++++++++++++-------
+ 1 file changed, 31 insertions(+), 8 deletions(-)
+
+diff --git a/vehicles/fuel/fuel_stations.gd b/vehicles/fuel/fuel_stations.gd
+index ce08f34b..82a6286e 100644
+--- a/vehicles/fuel/fuel_stations.gd
++++ b/vehicles/fuel/fuel_stations.gd
+@@ -127,9 +127,10 @@ func _process_pp_fuel_stations(dt: float) -> void:
+ 	for s: Dictionary in stations:
+ 		var c := lane_mid(s, 1)
+ 		var d := Vector2(c.x - pl.global_position.x, c.y - pl.global_position.z).length()
+-		if not built.has(s.id) and d < BUILD_R and not made: build(s, pl.get_parent()); made = true
++		if not built.has(s.id) and d < BUILD_R and not made: build(s, pl.get_parent(), true); made = true
+ 		elif built.has(s.id) and d > FREE_R: free_station(s.id)
+-		if built.has(s.id): try_cut(s)   # chunks stream in / out: cut each newly loaded copy once
++		elif _stage.has(s.id) and not made: _build_stage(s); made = true
++		if built.has(s.id) and not _stage.has(s.id): try_cut(s)   # chunks stream in / out: cut each newly loaded copy once
+ 
+ ## Clip the pump-canopy strip + forecourt wall of the station's OSM building out of the streamed baked chunk
+ ## (StationBuilding.cut_chunk). Returns triangles clipped this call.
+@@ -150,6 +151,7 @@ func try_cut(s: Dictionary) -> int:
+ 	return n
+ 
+ func free_station(id: String) -> void:
++	_stage.erase(id)
+ 	if built.has(id):
+ 		var n: Node = built[id]
+ 		if is_instance_valid(n): n.queue_free()
+@@ -370,7 +372,30 @@ static func box(st: SurfaceTool, b: Basis, c: Vector3, s: Vector3, col := Color.
+ const FACES := [[Vector3.RIGHT, Vector3.BACK, Vector3.UP], [Vector3.LEFT, Vector3.FORWARD, Vector3.UP], [Vector3.UP, Vector3.RIGHT, Vector3.FORWARD],
+ 	[Vector3.DOWN, Vector3.RIGHT, Vector3.BACK], [Vector3.BACK, Vector3.LEFT, Vector3.UP], [Vector3.FORWARD, Vector3.RIGHT, Vector3.UP]]
+ 
+-func build(s: Dictionary, parent: Node) -> Node3D:
++## bugcheck1 0016 (phone logs 7 Nov, Samsung + Redmi: proc_fuel_stations 71-74 ms in one frame at 900 Orange Ave,
++## cloud split: C-store room + props 30 ms, canopy cut of the baked chunk 20 ms, forecourt 6 ms). Streaming builds
++## (staged) make the forecourt now and the C-store, the station building and the chunk cut on the next 0.5 s ticks,
++## one per tick (built at BUILD_R = 250 m, so all of it is done long before the player gets there). A direct
++## build() call (tests, gameplay) still builds everything at once.
++var _stage: Dictionary = {}   # station id -> next stage (1 shop, 2 building, 3 cut)
++func _build_stage(s: Dictionary) -> void:
++	var root: Variant = built.get(s.id)
++	var st: int = _stage.get(s.id, 0)
++	if not is_instance_valid(root): _stage.erase(s.id); return
++	match st:
++		1: _build_shop(s, root)
++		2: _build_building(s, root)
++		_: try_cut(s); log.append("built_" + str(s.id))
++	if st >= 3: _stage.erase(s.id)
++	else: _stage[s.id] = st + 1
++func _build_shop(s: Dictionary, root: Node3D) -> void:
++	var shop := FuelShop.new(); shop.name = "CStore"; root.add_child(shop)
++	shop.setup(self, s)
++func _build_building(s: Dictionary, root: Node3D) -> void:
++	if s.has("building"):
++		var sb: Node3D = SB.new(); sb.name = "Building"; root.add_child(sb)
++		sb.setup(self, s)
++func build(s: Dictionary, parent: Node, staged := false) -> Node3D:
+ 	if built.has(s.id): return built[s.id]
+ 	var fsig := bsig(s); var fk := "fuel_%s_" % str(s.id)
+ 	var root := Node3D.new(); root.name = "FuelStation_" + str(s.id)
+@@ -464,11 +489,9 @@ func build(s: Dictionary, parent: Node) -> Node3D:
+ 		mi.visibility_range_end = 260.0; mi.visibility_range_end_margin = 20.0
+ 		mi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+ 		root.add_child(mi)
+-	var shop := FuelShop.new(); shop.name = "CStore"; root.add_child(shop)
+-	shop.setup(self, s)
+-	if s.has("building"):
+-		var sb: Node3D = SB.new(); sb.name = "Building"; root.add_child(sb)
+-		sb.setup(self, s)
++	if staged: _stage[s.id] = 1; return root
++	_build_shop(s, root)
++	_build_building(s, root)
+ 	try_cut(s)
+ 	log.append("built_" + str(s.id))
+ 	return root
+-- 
+2.43.0
+
