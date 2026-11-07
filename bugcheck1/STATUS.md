@@ -43,3 +43,7 @@ D) **Full performance audit + 60 fps plan**: CPU side headless (per-system frame
 After every finished step, and about every 20 min of work, commit + push to claude/laughing-bell-mxpuak (WIP allowed,
 marked in STATUS.md). Check usage with the session tool; at "warning" level, push immediately and keep STATUS.md's next
 step exact so a new session can continue.
+
+## Note for D (Yasin, ~03:30 UTC): the game is NOT GPU bound, so focus on CPU-bound work only (main-thread scripts,
+streaming / instancing / bake-miss fallbacks, physics, traffic / crowd sims, allocations, loading hitches). Yasin will
+send phone PerfProbe / actprobe1 logs periodically: when one arrives, add it to the analysis (compare with the previous one).
