@@ -147,3 +147,12 @@ junction rework (key bug for cars + one-booking rule) and the turn-curve fix.
 - Item 8 → 0023: night glow (SunSky._glow_apply), presets get glow / msaa; FSR line undone (Mobile renderer has no
   FSR: engine falls back to bilinear). Glow threshold not judgeable in GL Compatibility (clips at 1.0): tune on phone.
 - Items 9, 10: skipped (Yasin).
+
+## Story playthrough (New Game → end), 7 Nov
+- bugcheck1/tools/play_story.gd: real StoryDirector.start_new(), answers like a player (typed fallback of each voice
+  prompt, lesson / quiz taps, phone payments, CV, delivery), walks to the quest marker only in walk states. 3x speed.
+- Clean run (with 0015-0023): flow finished, 127 beats, 0 stalls, 0 script errors, 413 s (driver answers instantly).
+  Beats: bugcheck1/STORY_PLAYTHROUGH_BEATS.txt.
+- Found: 12 story lines have no voice clip (caption only): directions / bus stop names / interview invite (built from
+  live data), café fill-in-the-blank lines, and the static narrator line "Day 10. McCain Boulevard Gate, North Island
+  Base.". Missing en strings: npc.narrator, home.item.bedroom (English fallback shown).
