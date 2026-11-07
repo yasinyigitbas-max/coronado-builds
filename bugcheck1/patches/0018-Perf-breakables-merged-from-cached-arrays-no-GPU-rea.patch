@@ -1,0 +1,167 @@
+From 4b8b33883a2aea1ea7659a7670171353a768cd3a Mon Sep 17 00:00:00 2001
+From: bugcheck <bugcheck@local>
+Date: Sat, 7 Nov 2026 12:08:17 +0000
+Subject: [PATCH] Perf: breakables merged from cached arrays (no GPU read-back
+ per prop)
+
+Phone logs 7 Nov: brk.geometry 58 ms at spawn and up to 15 ms per package mid-drive on the
+phones (0.4 ms headless). Mesh.surface_get_arrays() reads a mesh back from the GPU; the
+furniture layer's _variant() did it for every new variant and SurfaceTool.append_from() did
+it for every prop of every breakables rebuild (activation, knock, reset). Each prop mesh is
+now read back once during furniture init (behind the loading screen), each variant's arrays
+are cached, and CoronadoBreakables.merge_arrays() builds the merged arrays directly (positions
+by xf, normals / tangents by xf.basis, indices offset); SurfaceTool stays as the fallback.
+Output identical to the SurfaceTool path (probe: 10 chunks, 54 props, 0 mismatches).
+test_breakables (knock / reset), test_tree_col, test_save PASS.
+---
+ map_dc/coronado/furniture/furniture_layer.gd | 22 +++++-
+ world_fx/breakables.gd                       | 73 +++++++++++++++++---
+ 2 files changed, 84 insertions(+), 11 deletions(-)
+
+diff --git a/map_dc/coronado/furniture/furniture_layer.gd b/map_dc/coronado/furniture/furniture_layer.gd
+index c80a30a5..e3c87f2c 100644
+--- a/map_dc/coronado/furniture/furniture_layer.gd
++++ b/map_dc/coronado/furniture/furniture_layer.gd
+@@ -307,6 +307,8 @@ func _init_stage(st: String) -> void:
+ 			var sh := {"prop": P.prop, "signs": P.signs, "veg": P.veg_mat()}
+ 			for key: String in mk: q.append(func() -> void: _meshes[key] = Baked.mesh("furn_prop_" + key, hash(key), mk[key] as Callable, sh))
+ 			for sp: String in BROAD + PALMS + ["Pine", "PalmTall"]: q.append(func() -> void: _meshes[sp] = P.tree(sp); _tree_lods[sp] = P.tree_lods(sp))
++			# bugcheck1 0018: read each prop mesh's arrays back ONCE, here behind the loading screen (see _base_arrays)
++			for key: String in mk: q.append(func() -> void: _base_arrays(key))
+ 			_queue(q)
+ 		"trees":
+ 			# worker-b17int item 9: sagging wires between the real utility poles (merged mesh per 200 m cell)
+@@ -911,6 +913,22 @@ func _group_of(key: String) -> String:
+ 	return "trees"
+ 
+ var _var_cache: Dictionary = {}
++## bugcheck1 0018 (phone logs 7 Nov: breakables geometry 58 ms at spawn, up to 15 ms per package mid-drive on the phones,
++## 0.4 ms headless): Mesh.surface_get_arrays() reads the mesh back from the GPU (a main-thread stall on Vulkan phones),
++## and it ran once per new variant here plus once per prop in every SurfaceTool.append_from() of a breakables rebuild.
++## The arrays are now kept on the CPU: each prop mesh is read back once (furniture init, behind the loading screen),
++## each variant's arrays are cached (variant_arrays), and CoronadoBreakables merges from them without any read-back.
++var _base_arr: Dictionary = {}   # key -> surface 0 arrays of _meshes[key]
++var _var_arr: Dictionary = {}    # variant key -> its arrays (same data as the _var_cache mesh)
++func _base_arrays(key: String) -> Array:
++	if not _base_arr.has(key): _base_arr[key] = (_meshes[key] as Mesh).surface_get_arrays(0)
++	return _base_arr[key]
++func variant_arrays(key: String, custom) -> Array:
++	var ck := key if custom == null else "%s@%.4f,%.4f" % [key, custom.r, custom.g]
++	if not _var_arr.has(ck):
++		_variant(key, custom)
++		if not _var_arr.has(ck): return []   # trees: never merged this way
++	return _var_arr[ck]
+ ## Per-key baked copy for merging: prop meshes get a COLOR array (vertex colour x TINT, so all prop meshes share one format),
+ ## sign faces get their atlas cell offset added to UV (custom = Color(u, v, ..)).
+ func _variant(key: String, custom) -> Mesh:
+@@ -918,7 +936,7 @@ func _variant(key: String, custom) -> Mesh:
+ 	if _var_cache.has(ck): return _var_cache[ck]
+ 	var m: Mesh = _meshes[key]
+ 	if _group_of(key) == "trees": _var_cache[ck] = m; return m
+-	var a := m.surface_get_arrays(0)
++	var a := _base_arrays(key).duplicate()   # shallow: the slots replaced below never touch the cached base
+ 	var nv := (a[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
+ 	var tint: Color = TINT.get(key, Color.WHITE)
+ 	var cols := PackedColorArray(); cols.resize(nv)
+@@ -930,7 +948,7 @@ func _variant(key: String, custom) -> Mesh:
+ 		for i in uv.size(): uv[i] += Vector2(custom.r, custom.g)
+ 		a[Mesh.ARRAY_TEX_UV] = uv
+ 	var am := ArrayMesh.new(); am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, a)
+-	_var_cache[ck] = am
++	_var_cache[ck] = am; _var_arr[ck] = a
+ 	return am
+ 
+ static var _sm: ShaderMaterial
+diff --git a/world_fx/breakables.gd b/world_fx/breakables.gd
+index 647ee560..420edae9 100644
+--- a/world_fx/breakables.gd
++++ b/world_fx/breakables.gd
+@@ -70,21 +70,76 @@ func _detach_impl(rec: Dictionary) -> void:
+ 
+ func _rebuild(rec: Dictionary) -> void:
+ 	var L: Node = rec.layer
+-	var sp := SurfaceTool.new(); sp.begin(Mesh.PRIMITIVE_TRIANGLES); var np := 0
+-	var ss := SurfaceTool.new(); ss.begin(Mesh.PRIMITIVE_TRIANGLES); var ns := 0
+-	for it: Dictionary in rec.items:
+-		if it.broken: continue
+-		sp.append_from(L._variant(it.key, null), 0, it.xf); np += 1
+-		if it.face != null: ss.append_from(L._variant("sign_face", it.face), 0, it.xf); ns += 1
+-	sp.set_material(CoronadoFurnProps.prop); ss.set_material(L._signs_merged())
+-	# red-dc-perf4: arrays kept so the furniture layer's CellMerge can draw them per 200 m cell
+-	var ap := sp.commit_to_arrays() if np > 0 else []; var as_ := ss.commit_to_arrays() if ns > 0 else []
++	var np := 0; var ns := 0
++	var ap: Array = []; var as_: Array = []
++	# bugcheck1 0018: merged from the furniture layer's cached variant arrays (no GPU read-back per prop, see
++	# furniture_layer._base_arrays); same arrays as the SurfaceTool path below, which stays as the fallback
++	var merged := false
++	if L.has_method(&"variant_arrays"):
++		var pp: Array = []; var ps: Array = []
++		for it: Dictionary in rec.items:
++			if it.broken: continue
++			pp.append([L.variant_arrays(it.key, null), it.xf]); np += 1
++			if it.face != null: ps.append([L.variant_arrays("sign_face", it.face), it.xf]); ns += 1
++		var mp: Variant = merge_arrays(pp); var ms: Variant = merge_arrays(ps)
++		if mp != null and ms != null: ap = mp; as_ = ms; merged = true
++	if not merged:
++		var sp := SurfaceTool.new(); sp.begin(Mesh.PRIMITIVE_TRIANGLES); np = 0
++		var ss := SurfaceTool.new(); ss.begin(Mesh.PRIMITIVE_TRIANGLES); ns = 0
++		for it: Dictionary in rec.items:
++			if it.broken: continue
++			sp.append_from(L._variant(it.key, null), 0, it.xf); np += 1
++			if it.face != null: ss.append_from(L._variant("sign_face", it.face), 0, it.xf); ns += 1
++		# red-dc-perf4: arrays kept so the furniture layer's CellMerge can draw them per 200 m cell
++		ap = sp.commit_to_arrays() if np > 0 else []; as_ = ss.commit_to_arrays() if ns > 0 else []
+ 	rec.arr_props = ap; rec.arr_signs = as_
+ 	(rec.mi_props as MeshInstance3D).mesh = _am(ap, CoronadoFurnProps.prop)
+ 	(rec.mi_signs as MeshInstance3D).mesh = _am(as_, L._signs_merged())
+ 	(rec.mi_props as MeshInstance3D).visible = np > 0; (rec.mi_signs as MeshInstance3D).visible = ns > 0   # worker-mapsan: no empty draw nodes
+ 	if rec.get("cell_on", false): cell_register(rec, true)
+ 
++## bugcheck1 0018: SurfaceTool.append_from() equivalent for [[arrays, Transform3D], ...] of one shared format (vertex,
++## normal, tangent, colour, uv, index): positions by xf, normals / tangent xyz by xf.basis, indices offset. Returns []
++## for no parts, null when a part's format differs (caller falls back to SurfaceTool).
++static func merge_arrays(parts: Array) -> Variant:
++	if parts.is_empty(): return []
++	var f0: Array = parts[0][0]
++	if f0.is_empty() or f0[Mesh.ARRAY_VERTEX] == null or f0[Mesh.ARRAY_INDEX] == null: return null
++	var slots := PackedInt32Array()
++	for s in Mesh.ARRAY_MAX: if f0[s] != null: slots.append(s)
++	for s in slots: if not s in [Mesh.ARRAY_VERTEX, Mesh.ARRAY_NORMAL, Mesh.ARRAY_TANGENT, Mesh.ARRAY_COLOR, Mesh.ARRAY_TEX_UV, Mesh.ARRAY_INDEX]: return null
++	var V := PackedVector3Array(); var N := PackedVector3Array(); var T := PackedFloat32Array()
++	var C := PackedColorArray(); var U := PackedVector2Array(); var I := PackedInt32Array()
++	var hn := f0[Mesh.ARRAY_NORMAL] != null; var ht := f0[Mesh.ARRAY_TANGENT] != null
++	var hc := f0[Mesh.ARRAY_COLOR] != null; var hu := f0[Mesh.ARRAY_TEX_UV] != null
++	for p: Array in parts:
++		var a: Array = p[0]; var xf: Transform3D = p[1]
++		if a.size() != f0.size(): return null
++		for s in Mesh.ARRAY_MAX: if (a[s] == null) != (f0[s] == null): return null
++		var o := V.size()
++		V.append_array(xf * (a[Mesh.ARRAY_VERTEX] as PackedVector3Array))
++		var bx := Transform3D(xf.basis, Vector3.ZERO)
++		if hn: N.append_array(bx * (a[Mesh.ARRAY_NORMAL] as PackedVector3Array))
++		if ht:
++			var t: PackedFloat32Array = a[Mesh.ARRAY_TANGENT]; var b0 := T.size()
++			T.resize(b0 + t.size())
++			for i in range(0, t.size(), 4):
++				var tv: Vector3 = xf.basis * Vector3(t[i], t[i + 1], t[i + 2])
++				T[b0 + i] = tv.x; T[b0 + i + 1] = tv.y; T[b0 + i + 2] = tv.z; T[b0 + i + 3] = t[i + 3]
++		if hc: C.append_array(a[Mesh.ARRAY_COLOR])
++		if hu: U.append_array(a[Mesh.ARRAY_TEX_UV])
++		var idx: PackedInt32Array = a[Mesh.ARRAY_INDEX]; var i0 := I.size()
++		I.append_array(idx)
++		if o > 0:
++			for i in idx.size(): I[i0 + i] += o
++	var out := []; out.resize(Mesh.ARRAY_MAX)
++	out[Mesh.ARRAY_VERTEX] = V; out[Mesh.ARRAY_INDEX] = I
++	if hn: out[Mesh.ARRAY_NORMAL] = N
++	if ht: out[Mesh.ARRAY_TANGENT] = T
++	if hc: out[Mesh.ARRAY_COLOR] = C
++	if hu: out[Mesh.ARRAY_TEX_UV] = U
++	return out
++
+ static func _am(a: Array, mt: Material) -> ArrayMesh:
+ 	if a.is_empty(): return null
+ 	var am := ArrayMesh.new(); am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, a); am.surface_set_material(0, mt)
+-- 
+2.43.0
+

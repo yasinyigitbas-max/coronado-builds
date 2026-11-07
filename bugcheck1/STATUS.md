@@ -120,3 +120,8 @@ junction rework (key bug for cars + one-booking rule) and the turn-curve fix.
   props there). Probe: all live packages terrain-swapped + furniture-registered after spawn (same as before).
 - 0017 rendered check (xvfb opengl3): doorway shows the furniture (was empty floor). img/0017_shop_doorway_before_after.png
 - Next: cloud benchmark lap with 0015 to confirm no regression; then wait for the next phone logs.
+- 0015 verified on cloud lap (pkg.activation peak 1.6 ms; script mean 3.72 ms; 0 script errors).
+- phys_srv / late_deferred spikes: package-load GPU work on the main thread (engine limit). Separate render thread
+  crashes (cloud, opengl3) -> not used. Documented in PERF_AUDIT.md.
+- 0018 breakables without GPU read-back: identical arrays (0 mismatches), test_breakables / tree_col / save PASS.
+- Next in queue: far / mid building views matching the near look (Yasin, after perf).

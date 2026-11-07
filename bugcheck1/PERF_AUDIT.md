@@ -85,3 +85,16 @@ Most > 50 ms frames have a script spike (proc ~21 ms on average in the bad frame
 **Next run:** same lap on the build with 0015–0017. Expect the `bldg_add_tree` frames and the fuel station frame to
 drop out of the > 50 ms list. Tool: `bugcheck1/tools/act_route.py run_X.csv activation_X.jsonl` prints the lap-only
 activation breakdown.
+
+### Follow-up (same day)
+- **0015 checked on the cloud lap:** the package add itself now peaks at 1.6 ms (it carried all registrations
+  before); script time per frame unchanged (3.72 ms mean); no script errors.
+- **Physics (`phys_srv`, ~25 ms) and `late_deferred` (25–36 ms) spikes: one cause, an engine limit.** On both phones
+  they fall in the frame where a cell package's threaded load has just finished (physics: 6/16 and 5/7 spikes;
+  deferred: 44/46 and 44/45, base rate 1.3%). The loader thread's GPU work (meshes / textures of the package) runs on
+  the main thread at the next message-queue flush, which the profiler books as physics or deferred time depending on
+  where it lands. Scripts cannot slice that work. Godot's separate render thread (`thread_model = Separate`) would
+  take it off the main thread, but the game crashes with it in a cloud test and Godot marks it experimental: **not used**.
+  Real options later: smaller per-cell packages, or package meshes stored as CPU arrays at bake time (fix 1b above).
+- **0018:** breakables no longer read meshes back from the GPU per prop (58 ms at spawn, up to 15 ms mid-drive on the
+  phones). Output identical. The saving only shows on a phone (a cloud read-back is a memory copy).

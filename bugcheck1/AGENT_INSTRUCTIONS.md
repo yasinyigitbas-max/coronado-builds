@@ -31,7 +31,7 @@ From `project/`, apply every file in `bugcheck1/patches/` **in number order** wi
 git am /path/to/bugcheck1/patches/0001-*.patch
 git am /path/to/bugcheck1/patches/0002-*.patch
 ...
-git am /path/to/bugcheck1/patches/0017-*.patch
+git am /path/to/bugcheck1/patches/0018-*.patch
 ```
 
 | Patch | What it fixes | Files |
@@ -53,6 +53,7 @@ git am /path/to/bugcheck1/patches/0017-*.patch
 | 0015 | Perf: a cell package going live mid-drive registers road / furniture / breakables / terrain one step per frame (phone hitch 30-40 ms) | map_dc/coronado/tests/coronado_layers.gd, furniture/furniture_layer.gd |
 | 0016 | Perf: fuel station built in 4 stages 0.5 s apart (phone 71-74 ms frame) | vehicles/fuel/fuel_stations.gd |
 | 0017 | Shops: the street occluder behind an open shop's front is left out while its room is loaded (shop looked empty from the door) | shops/shops_layer.gd, shops/interior/interiors_layer.gd, shops/interior/shop_interior.gd, tests/coronado_layers.gd |
+| 0018 | Perf: breakable props merged from cached mesh data (no GPU read-back per prop: 58 ms at spawn, up to 15 ms mid-drive) | world_fx/breakables.gd, furniture/furniture_layer.gd |
 
 After applying all of them, run the import again (`--import`) so the new script gets its `.uid` / cache entries.
 
@@ -66,7 +67,7 @@ After applying all of them, run the import again (`--import`) so the new script 
   **"Coronado bugcheck1: bug fixes + smarter traffic (experimental)"**.
 
 ## 4. Re-bake ONLY the changed parts, then export
-Only 0008 / 0011 change baked content (street furniture rows of 18 cells). All other patches (0001-0007, 0009, 0010, 0012-0017) are runtime code only.
+Only 0008 / 0011 change baked content (street furniture rows of 18 cells). All other patches (0001-0007, 0009, 0010, 0012-0018) are runtime code only.
 Run these steps from `project/` instead of the whole of `export_baked.sh` (same commands as in that script):
 
 1. Furniture chunk merges + static furniture cells (these tools have no partial mode; they rewrite unchanged chunks

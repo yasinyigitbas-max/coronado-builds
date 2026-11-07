@@ -34,4 +34,5 @@ Coronado content packs (binary only)
   a metre inside ([before / after](bugcheck1/img/0017_shop_doorway_before_after.png)).
 - **Fewer stutters while driving** (0015, 0016, from the Samsung + Redmi phone logs): city blocks that appear while
   you drive spread their setup over several frames (was 30-40 ms in one frame), and the 900 Orange Ave fuel station
-  no longer costs a 70 ms frame.
+  no longer costs a 70 ms frame. Street props (bins, signs, bollards) no longer copy their meshes back from the
+  graphics chip one by one (0018).
