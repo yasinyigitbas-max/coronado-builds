@@ -4,7 +4,7 @@ Patches 0001-0014 are already in your build. Do not re-apply them.
 
 1. Check: `git log --oneline | head -25`. The newest bugcheck commit must be
    "Crowd: walkers wait for green only at the kerb, never mid-crossing" (0014).
-2. Apply the five new patches in order, from `bugcheck1/patches/` on branch `claude/laughing-bell-mxpuak`:
+2. Apply the six new patches in order, from `bugcheck1/patches/` on branch `claude/laughing-bell-mxpuak`:
    ```
    git am -3 0015-*.patch 0016-*.patch 0017-*.patch 0018-*.patch 0019-*.patch 0020-*.patch
    ```
