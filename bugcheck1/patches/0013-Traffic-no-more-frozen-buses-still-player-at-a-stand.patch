@@ -1,0 +1,53 @@
+From 067d025fa0de477d0e7955793cd87a44b61a73b9 Mon Sep 17 00:00:00 2001
+From: bugcheck <bugcheck@local>
+Date: Sat, 7 Nov 2026 06:09:05 +0000
+Subject: [PATCH] Traffic: no more frozen buses (still player at a stand,
+ locked junction box)
+
+- A vehicle whose body sweeps the spot where the PLAYER stands still (bus turning at
+  the Spreckels Park taxi stand) waited for good (276 s; the CityRide taxi stuck behind
+  it). After 8 s on a still player it creeps past for 6 s.
+- A bus inside a junction box that can't book the next box of a short link (one
+  booking per car) blocked the junction forever: buses were exempt from the gridlock
+  breaker. Out of view and stuck > 90 s, a bus now leaves like an ambient car.
+  (Root cause = the booking rule; part of the car junction rework task.)
+test_cityride / test_traffic / test_taxi / test_hitchhike / test_scripted /
+test_positions PASS (with 0012).
+---
+ traffic/traffic_sim.gd | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/traffic/traffic_sim.gd b/traffic/traffic_sim.gd
+index ee53e567..f3898d57 100644
+--- a/traffic/traffic_sim.gd
++++ b/traffic/traffic_sim.gd
+@@ -827,8 +827,15 @@ func _obstacle(car: Dictionary, look: float) -> Array:
+ 	# at the kerb point beside them anyway); a lane-change-late approach otherwise froze there for good (Spreckels Park)
+ 	var own_rider: bool = car.cityride and not car.goal.is_empty() and _goal_dist(car) < 25.0
+ 	if player_pos.distance_squared_to(me) < 1600.0 and not own_rider: walkers.append(player_pos); still.append(_player_still_t > 1.0)
++	# bugcheck: a vehicle (mostly a turning bus) whose body sweeps the spot where the PLAYER stands still (e.g. waiting at
++	# the Spreckels Park taxi stand) waited for good: neither ever moved (bus 276 s, CityRide taxi stuck behind it).
++	# After 8 s waiting on a still player it creeps past for 6 s (the near car body nudges the player aside in the game).
++	if _player_still_t > 1.0 and str(car.get("why", "")) == "pedestrian" and float(car.wait_t) > 8.0 and player_pos.distance_squared_to(me) < 400.0:
++		car.pass_player_t = t
++	var passing_player: bool = t - float(car.get("pass_player_t", -1e9)) < 6.0
+ 	for wi in walkers.size():
+ 		var w: Vector3 = walkers[wi]
++		if passing_player and w == player_pos: continue
+ 		var rel: Vector3 = w - me
+ 		var along: float = rel.dot(fw) - car.len * 0.5
+ 		# hard body check (any LOD tick): a walker touching our footprint, or where it will be within the next
+@@ -1652,6 +1659,10 @@ func step_spawn(dt: float, tod := -1.0) -> void:
+ 		else: c.stuck_t = float(c.get("stuck_t", 0.0)) + dt
+ 		var ambient: bool = not c.scripted and not c.cityride and c.bus.is_empty()
+ 		var jam_end: bool = ambient and ((c.stuck_t > 40.0 and not _visible(c.pos)) or c.stuck_t > 120.0)
++		# bugcheck: a bus locked inside a junction box (it can't book the next box of a short link while holding this
++		# one) blocked that junction for good: buses were exempt from the breaker. Out of view after 90 s it leaves too
++		# (the timetable carries on with the next run). Root cause = one-booking-per-car rule, see bugcheck1/STATUS.md.
++		if not c.bus.is_empty() and c.stuck_t > 90.0 and not _visible(c.pos): jam_end = true
+ 		if jam_end: stats.jam_despawns = int(stats.get("jam_despawns", 0)) + 1
+ 		if gone or stuck_end or bus_end or jam_end: remove_car(c)
+ 	for pd in peds.duplicate():
+-- 
+2.43.0
+

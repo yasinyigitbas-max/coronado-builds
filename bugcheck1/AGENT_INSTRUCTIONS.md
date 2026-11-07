@@ -31,7 +31,7 @@ From `project/`, apply every file in `bugcheck1/patches/` **in number order** wi
 git am /path/to/bugcheck1/patches/0001-*.patch
 git am /path/to/bugcheck1/patches/0002-*.patch
 ...
-git am /path/to/bugcheck1/patches/0011-*.patch
+git am /path/to/bugcheck1/patches/0013-*.patch
 ```
 
 | Patch | What it fixes | Files |
@@ -47,6 +47,8 @@ git am /path/to/bugcheck1/patches/0011-*.patch
 | 0009 | Doors: Open works on the first tap (was dropped while the room loaded); package shops woken (were empty shells) | shops/interior/interiors_layer.gd, shops/shops_layer.gd, public/public_layer.gd |
 | 0010 | Traffic: no lane change near a lane's start (1 junction-exit collision in test_traffic); lane test ignores intentional offsets | traffic/traffic_sim.gd, tests/traffic/test_traffic.gd |
 | 0011 | Incremental re-bake: undoes 0008's `CellPkg.VERSION` bump; the game prints `DOOR_CLEAR_CELLS x_z,...` (the 18 changed cells) | perf/cell_pkg.gd, furniture_layer.gd |
+| 0012 | Pedestrians walk on real sidewalks, turn corners, wait at the kerb (junction table key bug) | traffic/traffic_sim.gd |
+| 0013 | No frozen buses (still player at a stand; bus locked in a junction box) | traffic/traffic_sim.gd |
 
 After applying all of them, run the import again (`--import`) so the new script gets its `.uid` / cache entries.
 
@@ -97,7 +99,7 @@ are `extends Node` scenes. The bug check used `bugcheck1/tools/late_launch.gd`:
 |---|---|
 | tests/worker/test_tree_col.gd | PASS (281/281 trunks solid) |
 | tests/traffic/test_cityride.gd | PASS (3 trips arrive, 0 collisions / red runs) |
-| tests/traffic/test_traffic.gd | PASS (0 collisions, 0 red runs). **Not yet re-run after 0010: run it first; if it fails, report and stop.** |
+| tests/traffic/test_traffic.gd | PASS (0 collisions, 0 red runs, 0 pedestrian hits) |
 | tests/rides/test_taxi.gd, tests/rides/test_hitchhike.gd | PASS |
 | tests/traffic/test_scripted.gd, test_positions.gd, test_release.gd, test_car_mesh.gd | PASS |
 | tests/minion/test_prop_collision.gd | `DOORWAYS ... blocked=0` (was 2-10); other lines unchanged |

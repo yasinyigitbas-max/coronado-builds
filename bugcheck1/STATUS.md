@@ -84,3 +84,8 @@ junction-booking rules reworked; ask Yasin.
 NEXT: (1) re-run traffic/ride tests with final 0012; (2) crowd layer (npc/crowd_layer.gd): agents WAIT at signals already
 inside the road at Hotel del (crossing segment start inside the carriageway?): probe probes/probe_crowdx.gd was killed by a
 worker restart; re-run it; (3) then D (CPU perf audit).
+
+## ~06:10 UTC: 0012 final + 0013
+- 0012 (pedestrians) + 0013 (frozen buses): test_cityride, test_traffic, test_taxi, test_hitchhike, test_scripted,
+  test_positions all PASS. Buses still run (bus_present 2, 13 stops served).
+- NEXT: crowd layer W_WAIT-on-road check (probes/probe_crowdx.gd), then D (CPU perf audit).
