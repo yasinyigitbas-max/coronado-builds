@@ -12,7 +12,8 @@ Don't work around a failed check.
   `coronado_b17int19_hud_onelap_rebake1_treevis1_mobilevk1_actprobe1_src6_source.tar.gz`
   from release `coronado-vulkan-mobile1-20261107`. The Godot project is `coronado-actprobe1-source/project/`.
 - Follow `BUILD_AND_DEPENDENCIES.md` in that archive for the toolchain, the data packs and the speech plugin.
-- **A re-bake is required and approved by Yasin** (door clearance changes the street furniture, so the cell packages must be rebuilt).
+- **A re-bake is required and approved by Yasin**, but **bake only what changed** (Yasin's rule): door clearance changes the
+  street furniture of 18 cells; nothing else needs new bakes. Never force a full re-bake (no version bumps, no `--clean`).
 - Don't upload, publish or create a release until Yasin says so. `tools/pack/publish_packs.sh` stays a dry run (no `--yes`).
 - Don't change anything outside what these steps describe. If a patch does not apply cleanly, stop and report.
 
@@ -30,7 +31,7 @@ From `project/`, apply every file in `bugcheck1/patches/` **in number order** wi
 git am /path/to/bugcheck1/patches/0001-*.patch
 git am /path/to/bugcheck1/patches/0002-*.patch
 ...
-git am /path/to/bugcheck1/patches/0010-*.patch
+git am /path/to/bugcheck1/patches/0011-*.patch
 ```
 
 | Patch | What it fixes | Files |
@@ -42,9 +43,10 @@ git am /path/to/bugcheck1/patches/0010-*.patch
 | 0005 | CityRide taxi spawned on the wrong side / longest route (2 stands never got a taxi) | cityride/city_ride.gd |
 | 0006 | Tree "S:" shadow batches drawn as extra visible full-detail trees (+15 draws at spawn) | furniture_layer.gd |
 | 0007 | Traffic: lane changes, overtaking, going around stopped cars, kerb stops (no more "270 degree" right-right-right left turns) | traffic/traffic_sim.gd, cityride/city_ride.gd |
-| 0008 | Door clearance: trees / street props removed from the 2 m in front of every shop door (10 doors were blocked); `CellPkg.VERSION` 5 → 6 | furniture/door_clear.gd (new), furniture_layer.gd, perf/cell_pkg.gd |
+| 0008 | Door clearance: trees / street props removed from the 2 m in front of every shop door (10 doors were blocked) | furniture/door_clear.gd (new), furniture_layer.gd, perf/cell_pkg.gd |
 | 0009 | Doors: Open works on the first tap (was dropped while the room loaded); package shops woken (were empty shells) | shops/interior/interiors_layer.gd, shops/shops_layer.gd, public/public_layer.gd |
 | 0010 | Traffic: no lane change near a lane's start (1 junction-exit collision in test_traffic); lane test ignores intentional offsets | traffic/traffic_sim.gd, tests/traffic/test_traffic.gd |
+| 0011 | Incremental re-bake: undoes 0008's `CellPkg.VERSION` bump; the game prints `DOOR_CLEAR_CELLS x_z,...` (the 18 changed cells) | perf/cell_pkg.gd, furniture_layer.gd |
 
 After applying all of them, run the import again (`--import`) so the new script gets its `.uid` / cache entries.
 
@@ -57,21 +59,32 @@ After applying all of them, run the import again (`--import`) so the new script 
 - Suggested release tag when Yasin approves: `coronado-bugcheck1-20261107`, prerelease, title
   **"Coronado bugcheck1: bug fixes + smarter traffic (experimental)"**.
 
-## 4. Re-bake and export
-Run the full pipeline from `project/` (it bakes everything in the right order and then exports):
+## 4. Re-bake ONLY the changed parts, then export
+Only 0008 / 0011 change baked content (street furniture rows of 18 cells). 0001-0007, 0009, 0010 are runtime code only.
+Run these steps from `project/` instead of the whole of `export_baked.sh` (same commands as in that script):
 
-```
-tools/gray_bake/export_baked.sh /path/to/godot-4.7.2 /path/to/out/coronado_bugcheck1.apk
-```
+1. Furniture chunk merges + static furniture cells (these tools have no partial mode; they rewrite unchanged chunks
+   byte-identical, so only the changed cells' files differ):
+   ```
+   godot --headless --path . res://tools/gray_bake/bake_world.tscn
+   godot --headless --path . res://tools/gray_bake/bake_cells.tscn
+   ```
+   Expect in the log: `CoronadoFurniture: 28 props / trees removed from 201 door fronts (door clearance v1)` and
+   `DOOR_CLEAR_CELLS -9_18,-18_32,-11_20,-14_25,-17_30,-17_31,-17_35,-18_34,-17_36,-18_33,-11_19,-16_35,-17_33,-19_33,-19_34,-16_37,-17_22,-13_22`
+2. Cell packages for those 18 cells only (needs a renderer, like export_baked.sh):
+   ```
+   xvfb-run -a -s "-screen 0 1280x720x24" godot --rendering-driver opengl3 --path . res://tools/gray_bake/bake_cellpkg.tscn -- --only=<the DOOR_CLEAR_CELLS list>
+   ```
+   Every other cell keeps its package and index entry (`CELLPKG skip c_x_z (not in --only)`).
+3. Door cuts inside those packages (as export_baked.sh does after bake_cellpkg), then the gates:
+   ```
+   godot --headless --path . res://tools/worker/dcut_pkg.tscn -- --merge
+   godot --headless --path . res://tools/gray_bake/verify_bakes.tscn
+   ```
+4. Export: `godot --headless --path . --export-debug Android /path/to/out/coronado_bugcheck1.apk`
 
-Why everything: 0008 changes the furniture rows, which changes the furniture chunk bakes (`furn_chunk_*`), the static
-FurnCells (`bake_cells`), the walk-in door cuts and **every** cell package (`bake_cellpkg`; `CellPkg.VERSION` 6 makes
-every old package invalid on purpose). `bake_cellpkg` needs a real renderer (`xvfb-run ... --rendering-driver opengl3`)
-as the script already does.
-
-Expected in the bake / game log: `CoronadoFurniture: 28 props / trees removed from 201 door fronts (door clearance v1)`.
-
-Then cut the content packs with `tools/pack/split_packs.py` exactly as for earlier builds, and run
+Then cut the content packs with `tools/pack/split_packs.py` exactly as for earlier builds (packs are content-addressed:
+only the packs whose files changed get new names, so players re-download only those), and run
 `tools/pack/publish_packs.sh OUT/packs VERSION OUT/app.apk` **without `--yes`** (dry run only) and report its output.
 
 ## 5. Checks that must pass before you hand the build back

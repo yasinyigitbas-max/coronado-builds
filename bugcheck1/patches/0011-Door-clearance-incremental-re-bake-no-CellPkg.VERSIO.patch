@@ -1,0 +1,62 @@
+From 32a79f383c3105653bd42cc1946d74dfb8128c9c Mon Sep 17 00:00:00 2001
+From: bugcheck <bugcheck@local>
+Date: Sat, 7 Nov 2026 03:56:30 +0000
+Subject: [PATCH] Door clearance: incremental re-bake (no CellPkg.VERSION bump)
+
+Yasin: bake only the changed parts. VERSION 6 forced every part of every cell package
+to re-bake. Back to 5; _door_clear() now records the cells whose furniture rows changed
+and prints them as DOOR_CLEAR_CELLS x_z,... (18 cells), to re-bake only those:
+bake_cellpkg.tscn -- --only=<that list>. Until re-baked, the old packages (with the
+blockers) stay valid.
+---
+ map_dc/coronado/furniture/furniture_layer.gd | 7 ++++++-
+ map_dc/coronado/perf/cell_pkg.gd             | 2 +-
+ 2 files changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/map_dc/coronado/furniture/furniture_layer.gd b/map_dc/coronado/furniture/furniture_layer.gd
+index ad2134bb..60fe2060 100644
+--- a/map_dc/coronado/furniture/furniture_layer.gd
++++ b/map_dc/coronado/furniture/furniture_layer.gd
+@@ -1208,10 +1208,11 @@ func _load_trees_json() -> void:
+ ## the runtime build, the furniture chunk bakes and the cell packages, so a re-bake removes the baked blockers too.
+ const DoorClear := preload("res://map_dc/coronado/furniture/door_clear.gd")
+ var door_cleared := 0
++var door_cleared_cells: PackedStringArray = []   ## "x_z" cells whose furniture rows the door clearance changed
+ func _door_clear() -> void:
+ 	var rs := DoorClear.rects()
+ 	if rs.is_empty(): return
+-	var n := 0
++	var n := 0; var changed: PackedStringArray = []
+ 	for k: Vector2i in data:
+ 		var kept := []
+ 		for r: Array in data[k]:
+@@ -1220,9 +1221,13 @@ func _door_clear() -> void:
+ 				var rad: float = FOOT.get("tree" if t.begins_with("tree") else t, 0.3)
+ 				if DoorClear.blocks(rs, Vector2(float(r[1]), float(r[3])), rad): n += 1; continue
+ 			kept.append(r)
++		if kept.size() != (data[k] as Array).size(): changed.append("%d_%d" % [k.x, k.y])
+ 		data[k] = kept
+ 	door_cleared = n
++	door_cleared_cells = changed
+ 	print("CoronadoFurniture: %d props / trees removed from %d door fronts (door clearance v%d)" % [n, rs.size(), DoorClear.VERSION])
++	# incremental bake: only these cells' furniture changed -> tools/gray_bake/bake_cellpkg.tscn -- --only=<this list>
++	print("DOOR_CLEAR_CELLS ", ",".join(changed))
+ 
+ func _load_trees_rows() -> void:
+ 	var path := ""
+diff --git a/map_dc/coronado/perf/cell_pkg.gd b/map_dc/coronado/perf/cell_pkg.gd
+index 771c7ec9..67b2cb3c 100644
+--- a/map_dc/coronado/perf/cell_pkg.gd
++++ b/map_dc/coronado/perf/cell_pkg.gd
+@@ -23,7 +23,7 @@ const PP := preload("res://debug/pp.gd")   # brown-b9-ppfix: null-safe profiler
+ const DIR := "res://baked/cellpkg/"
+ const INDEX := DIR + "index.json"
+ const WANT := DIR + "cells.json"     ## the cells that must have a package (strict gate: a missing / stale one is a bake miss)
+-const VERSION := 6   ## 6: bugcheck door clearance (furniture rows changed, cell packages must be re-baked)
++const VERSION := 5   ## (bugcheck: NOT bumped for the door clearance: only the changed cells are re-baked, see furniture_layer _door_clear)
+ 
+ static var _idx: Dictionary = {}     ## "x_z" -> entry {file, sig, rooms, ...}
+ static var _read := false
+-- 
+2.43.0
+

@@ -47,3 +47,11 @@ step exact so a new session can continue.
 ## Note for D (Yasin, ~03:30 UTC): the game is NOT GPU bound, so focus on CPU-bound work only (main-thread scripts,
 streaming / instancing / bake-miss fallbacks, physics, traffic / crowd sims, allocations, loading hitches). Yasin will
 send phone PerfProbe / actprobe1 logs periodically: when one arrives, add it to the analysis (compare with the previous one).
+
+## Update ~04:00 UTC
+- test_traffic with 0001-0010: **PASS** (0 collisions, 0 red runs, lane dev 0.66 m).
+- 32 affected / unfinished tests with 0001-0010: no regressions; prop_collision FAIL→PASS, cityride FAIL→PASS (vs 0001-0006).
+- 0011: incremental bake (no VERSION bump; 18 changed cells printed as DOOR_CLEAR_CELLS). AGENT_INSTRUCTIONS step 4 rewritten.
+- Wall colour (B, first half): **skipped by Yasin** ("may have been fixed before": bld_atlas_mat sets_on = 0 already). Street
+  screenshots (software GL) showed one colour per building.
+- NEXT: B second half (half / misaligned doors and windows scan), then C (pedestrians), then D (CPU perf audit).
