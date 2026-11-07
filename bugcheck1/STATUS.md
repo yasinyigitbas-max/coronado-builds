@@ -103,3 +103,10 @@ Route (perf_route one lap, --perfroute_menu --perfseed=1, headless, packs mounte
 - The SAME route warm (OS file cache full) has NO hitch > 100 ms (max 67 ms): the spikes are main-thread DISK READS of
   pack data during activation (cold cache = phone-like). Instrumented warm runs: CellMerge.add < 5 ms, road register
   <= 17 ms, Baked.load_any <= 7 ms. NEXT: find which call reads from disk on the main thread (cold-cache run).
+
+## ~07:00 UTC: D (CPU perf audit) DONE, see bugcheck1/PERF_AUDIT.md
+Steady state within budget (script 3.3-3.7 ms mean). Only measured play-time hitch source = cell package activation
+(road / furniture merge registration on the main thread, 7-10x variance between runs, up to 330 ms). Recommended fix 1a
+(spread registration over frames, no re-bake) waits for Yasin's phone actprobe1 logs to confirm.
+Queue empty. Waiting for Yasin: phone logs (perf), example screenshots (half doors / windows), go / no-go for the car
+junction rework (key bug for cars + one-booking rule) and the turn-curve fix.
