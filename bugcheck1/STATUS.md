@@ -173,3 +173,9 @@ junction rework (key bug for cars + one-booking rule) and the turn-curve fix.
 - Item 6 → 0029: kit roof edges off (Yasin). Kit bake here: 28684 removed, 7.29 M → 6.53 M tris, 283 cells' kits
   changed (KIT_CHANGED_CELLS_0029.txt). Rendered checks with --nocellpkg showed no regressions; floating rooftop
   boxes seen from a camera inside a building are a camera artifact. Packages for those cells need re-baking.
+- Item 8 → 0030 side / rear fences (bugcheck1/tools/side_fences.py). Measured with an override pack
+  (bugcheck1/tools/override_launch.gd): fences 18.5 → 48.4 km, tris 197k → 413k island-wide, setup +150 ms at load.
+- FOUND: data packs override project trees.json / fences_alleys.json: packs must be re-cut (noted in instructions).
+  With the real new trees.json: test_tree_col PASS (old trees.json via the same runtime path: FAIL 4/10 downtown).
+- Item 7 (road lines) on hold: overhead renders show continuous markings; needs Yasin's screenshot / location.
+- Noticed: floating white window frames (facade kit) beside some house walls; tree canopies black from below.

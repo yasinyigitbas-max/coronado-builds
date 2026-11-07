@@ -32,7 +32,7 @@ From `project/`, apply every file in `bugcheck1/patches/` **in number order** wi
 git am /path/to/bugcheck1/patches/0001-*.patch
 git am /path/to/bugcheck1/patches/0002-*.patch
 ...
-git am /path/to/bugcheck1/patches/0029-*.patch
+git am /path/to/bugcheck1/patches/0030-*.patch
 ```
 
 | Patch | What it fixes | Files |
@@ -66,6 +66,7 @@ git am /path/to/bugcheck1/patches/0029-*.patch
 | 0027 | Terrain: smooth grass / sand / soil borders (4-texel majority class, light warp) | map_dc/coronado/terrain/terrain.gdshader |
 | 0028 | Trees: 1524 moved ~1 m off the sidewalk walking lines; 570 removed (inside buildings, on park paths, no free spot); data only (trees.json) | map_dc/coronado/furniture/data/trees.json |
 | 0029 | Facade kit: no roof edges (cornices, parapet caps; eaves already off). Needs the kit bake + package bake of 283 cells | map_dc/coronado/bldg_tex/facade/tools/facade_kit.gd |
+| 0030 | Fences: 1474 side-yard + 541 shared rear fences between neighbouring houses (data + loader) | map_dc/coronado/furniture/fences_alleys.gd, furniture/data/fences_alleys.json |
 
 After applying all of them, run the import again (`--import`) so the new script gets its `.uid` / cache entries.
 
@@ -115,6 +116,8 @@ Run these steps from `project/` instead of the whole of `export_baked.sh` (same 
    `godot --path . --rendering-method mobile --export-debug Android /path/to/out/coronado-fix3.apk`
    (display-less Linux: `xvfb-run -a` in front, with a Vulkan driver). The log must show "Baking shaders".
 
+**Data packs carry copies of `furniture/data/trees.json` (0028) and `fences_alleys.json` (0030)** and override the project
+files when mounted: re-cut the packs from the patched project, or the game keeps the old trees / fences.
 Then cut the content packs with `tools/pack/split_packs.py` exactly as for earlier builds (packs are content-addressed:
 only the packs whose files changed get new names, so players re-download only those), and run
 `tools/pack/publish_packs.sh OUT/packs VERSION OUT/app.apk` **without `--yes`** (dry run only) and report its output.
