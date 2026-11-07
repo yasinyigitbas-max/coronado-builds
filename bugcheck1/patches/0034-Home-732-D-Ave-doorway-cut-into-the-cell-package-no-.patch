@@ -1,0 +1,67 @@
+From 7b7259f9f1cb07a216e4907026ed06c3cf352151 Mon Sep 17 00:00:00 2001
+From: bugcheck <bugcheck@local>
+Date: Sat, 7 Nov 2026 17:48:38 +0000
+Subject: [PATCH] Home (732 D Ave): doorway cut into the cell package; no crash
+ when the flat drops
+
+Yasin: the player's house lost its door and showed half windows. The porch wall panel in front of
+the entry (painted with two half windows) is only cut while the flat interior exists
+(home_layer._recut). Since cell packages, nothing cut it otherwise, so the stand-in leaf sat
+0.14 m behind a shut wall. bake_cellpkg now cuts the home doorway into the package pieces around
+the door like a public room's door (flat frame + rect, fy = leaf_fy), and the bld fingerprint of
+the 3x3 cells includes it. Rebake: bake_cellpkg --only=<cells -19..-16 x 27..29> (12 cells;
+log: 'home door in (-17, 28): 9 cut pieces'). Checked: street view shows the door, built flat
+shows the real door + surround + 732.
+home_layer: _entry_close_watch can drop the flat in the same frame; guard before flat.to_local
+(SCRIPT ERROR to_local on null when the door closed).
+---
+ map_dc/coronado/home/home_layer.gd |  1 +
+ tools/gray_bake/bake_cellpkg.gd    | 13 +++++++++++++
+ 2 files changed, 14 insertions(+)
+
+diff --git a/map_dc/coronado/home/home_layer.gd b/map_dc/coronado/home/home_layer.gd
+index 455107be..f07d37c8 100644
+--- a/map_dc/coronado/home/home_layer.gd
++++ b/map_dc/coronado/home/home_layer.gd
+@@ -458,6 +458,7 @@ func _process_pp_home_layer(dt: float) -> void:
+ 	if flat:
+ 		flat.update_doors(dt)
+ 		_entry_close_watch(dt)
++		if flat == null: return   # bugcheck1 0034: the close watch may drop the flat this frame (to_local on null)
+ 		var lp := flat.to_local(target.global_position)
+ 		var inside := CoronadoHomeFlat.inside_flat(lp.x, -lp.z)
+ 		flat.set_interior_visible(inside or Vector2(lp.x, lp.z).length() < 3.0)
+diff --git a/tools/gray_bake/bake_cellpkg.gd b/tools/gray_bake/bake_cellpkg.gd
+index 2aad1d8e..a7340bf6 100644
+--- a/tools/gray_bake/bake_cellpkg.gd
++++ b/tools/gray_bake/bake_cellpkg.gd
+@@ -145,6 +145,17 @@ func _run() -> void:
+ 		if not pubs.has(c): pubs[c] = []
+ 		(pubs[c] as Array).append(room)
+ 		_log("public room %s in %s: %d cut pieces, %d baked lights, %d ms" % [s.id, c, nc, room.baked_lights.size(), Time.get_ticks_msec() - tb])
++	# bugcheck1 0034: the player's home doorway (732 D Ave). The runtime only cuts it while the flat interior exists
++	# (home_layer._recut), so with packages the porch wall panel stayed shut in front of the stand-in leaf (the door
++	# sat 0.14 m behind the wall: "no door, half windows"). Cut it into the package like a public room's door, with the
++	# flat's own frame and rect (home_layer._recut; fy as the flat computes it, home_layer.leaf_fy).
++	var hdc := CellPkg.cell_of_xz(CoronadoHomeFlat.door_xz().x, CoronadoHomeFlat.door_xz().y)
++	var hcut := CoronadoDoorCut.new(); var hn := 0
++	var hrect := Rect2(-0.5, -1.0, 1.0, CoronadoHomeLayer.leaf_fy() + 2.1 + 1.0)
++	for dz in range(-1, 2):
++		for dx in range(-1, 2):
++			if blds.has(hdc + Vector2i(dx, dz)): hn += hcut.open_door([blds[hdc + Vector2i(dx, dz)]], CoronadoHomeFlat.frame(), hrect, [], true)
++	if hn > 0: cuts.append(hcut); _log("home door in %s: %d cut pieces" % [hdc, hn])
+ 	while CoronadoCutReg.pending > 0: await get_tree().process_frame
+ 	_log("door cuts: %d rooms, cutreg %s" % [cuts.size(), CoronadoCutReg.stats])
+ 	# other doors (public rooms / cinema / civic / fuel) known by the cut bake on package pieces: they stay closed here
+@@ -587,6 +598,8 @@ func _part_fps(k: Vector2i, bsig: int, lay: Node, il: Node, furn: Node, shops: N
+ 		if (rcell[key] - k).abs().x <= 1 and (rcell[key] - k).abs().y <= 1: cut.append([key, rsig[key]])
+ 	for id: String in psig_all:
+ 		if (psig_all[id][0] - k).abs().x <= 1 and (psig_all[id][0] - k).abs().y <= 1: cut.append([id, psig_all[id][1]])
++	var hdc := CellPkg.cell_of_xz(CoronadoHomeFlat.door_xz().x, CoronadoHomeFlat.door_xz().y)
++	if (hdc - k).abs().x <= 1 and (hdc - k).abs().y <= 1: cut.append(["home_door", 1])   # bugcheck1 0034
+ 	var roads: Object = lay.roads
+ 	var road: Array = [roads.has_chunk(k)]
+ 	if roads.has_chunk(k):
+-- 
+2.43.0
+

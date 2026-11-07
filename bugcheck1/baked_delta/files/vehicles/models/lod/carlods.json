@@ -1,0 +1,17 @@
+{
+ "ids": {
+  "bus_city": "6ab9fdfc56eec4b9fcf367a689346080",
+  "bus_mini": "a61ea0f7ac25493c7482ac4f9eeda490",
+  "fiamma_gt": "50328d587cf8eb1af7422cd67da81ac2",
+  "fiamma_r": "0326284d21be281a3c9017863bd9f93b",
+  "sakura": "249628cd808d47e8d059a60d73f2584a",
+  "sakura_t": "4f75385ef2d969f86b24b2a10f98edf0",
+  "stern_e": "dc9a33ab5fc0c333e8c2090ef5d47c05",
+  "stern_g": "63275f0171fcdb38f24102fe0f9d348c",
+  "taxi": "c92f45bc76dd37b9712f1bc9e352fecd",
+  "van": "030c2e9f643e9ab45916789595987e07",
+  "volt_s": "5d8d15317c9da9d12b0fed69839dd2c8",
+  "volt_x": "4b8195e5209c5f8f70b81e6637b4fc0c"
+ },
+ "version": 1
+}

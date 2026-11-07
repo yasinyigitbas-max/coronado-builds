@@ -35,6 +35,7 @@ git am /path/to/bugcheck1/patches/0002-*.patch
 git am /path/to/bugcheck1/patches/0031-*.patch
 git am /path/to/bugcheck1/patches/0032-*.patch
 git am /path/to/bugcheck1/patches/0033-*.patch
+git am /path/to/bugcheck1/patches/0034-*.patch
 ```
 
 | Patch | What it fixes | Files |
@@ -72,6 +73,7 @@ git am /path/to/bugcheck1/patches/0033-*.patch
 | 0031 | Facade kit: no 3D window trim / shutters (they floated off the walls); kit tris 6.53 M -> 1.17 M. Kit + package bake | map_dc/coronado/bldg_tex/facade/tools/facade_kit.gd |
 | 0032 | Kit bake: deletes the old kit_/kitn_ files of a block whose kit is now empty (14 blocks after 0029/0031 kept stale frames). Bake tool only | map_dc/coronado/bldg_tex/facade/tools/bake_kit.gd |
 | 0033 | bake_cells `-- --all`: also rebakes merged prop/road cells of packaged chunks (verify_bakes checked them; 2 were stale since 0008). Bake tool only | tools/gray_bake/bake_cells.gd |
+| 0034 | Home door cut into its cell package (was hidden behind the porch wall panel); home_layer crash guard. Package bake of 12 cells (already in baked_delta) | tools/gray_bake/bake_cellpkg.gd, home/home_layer.gd |
 
 After applying all of them, run the import again (`--import`) so the new script gets its `.uid` / cache entries.
 
