@@ -32,7 +32,7 @@ From `project/`, apply every file in `bugcheck1/patches/` **in number order** wi
 git am /path/to/bugcheck1/patches/0001-*.patch
 git am /path/to/bugcheck1/patches/0002-*.patch
 ...
-git am /path/to/bugcheck1/patches/0022-*.patch
+git am /path/to/bugcheck1/patches/0023-*.patch
 ```
 
 | Patch | What it fixes | Files |
@@ -59,6 +59,7 @@ git am /path/to/bugcheck1/patches/0022-*.patch
 | 0020 | Cars: near / far car meshes rebuilt without holes, black smears or missing wheels (needs the car LOD re-bake, step 4) | vehicles/car_models.gd, tools/red_bake_car_lods.gd, tests/brown/test_pb_carlods.gd |
 | 0021 | Look + frame pacing: FSR 1.0 upscaling, MSAA 2x, debanding, AgX tone mapping + mild colour lift, physics catch-up 2 steps | project.godot, core/game_settings.gd, map_dc/coronado/tests/test_coronado.gd |
 | 0022 | Export: Shader Baker on (Vulkan pipeline shaders compiled at export; export with `--rendering-method mobile`, not `--headless`) | export_presets.cfg |
+| 0023 | Look: night glow (night only, off on Low); MSAA per preset; undoes 0021's FSR line (no FSR in the Mobile renderer) | world_fx/sun_sky.gd, core/game_settings.gd, project.godot |
 
 After applying all of them, run the import again (`--import`) so the new script gets its `.uid` / cache entries.
 
@@ -72,7 +73,7 @@ After applying all of them, run the import again (`--import`) so the new script 
 
 ## 4. Re-bake ONLY the changed parts, then export
 Only 0008 / 0011 (street furniture rows of 18 cells) and 0020 (car LOD meshes) change baked content. All other patches
-(0001-0007, 0009, 0010, 0012-0019, 0021, 0022) are runtime code / settings only.
+(0001-0007, 0009, 0010, 0012-0019, 0021-0023) are runtime code / settings only.
 
 0. Car LODs (0020), incremental, car files only:
    ```
@@ -146,6 +147,8 @@ Install over the existing app (same signer). Things to look at:
 9. Drive towards downtown from 300 m: buildings keep their shape and roof as you approach (0019); the switch to
    simple boxes now happens at 300 m instead of 70 m.
 10. Watch traffic and parked cars from 10-100 m: no black holes, torn panels or missing wheels (0020).
+11. At night (after ~20:00 game time): street lamps, lit windows and car lights have a soft glow; by day no glow
+    (0023). If it is too strong / too weak: world_fx/sun_sky.gd GLOW_I (strength) and GLOW_THRESHOLD.
 
 ## 7. Not in this build (reported, not fixed)
 - 4 NPC lines without voice clips (barista greet / no_money, passer-by cafe / beach): need recordings.

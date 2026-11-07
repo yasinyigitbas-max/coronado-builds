@@ -1,12 +1,12 @@
-# bugcheck1 update: patches 0015-0022 only
+# bugcheck1 update: patches 0015-0023 only
 
 Patches 0001-0014 are already in your build. Do not re-apply them.
 
 1. Check: `git log --oneline | head -25`. The newest bugcheck commit must be
    "Crowd: walkers wait for green only at the kerb, never mid-crossing" (0014).
-2. Apply the eight new patches in order, from `bugcheck1/patches/` on branch `claude/laughing-bell-mxpuak`:
+2. Apply the nine new patches in order, from `bugcheck1/patches/` on branch `claude/laughing-bell-mxpuak`:
    ```
-   git am -3 0015-*.patch 0016-*.patch 0017-*.patch 0018-*.patch 0019-*.patch 0020-*.patch 0021-*.patch 0022-*.patch
+   git am -3 0015-*.patch 0016-*.patch 0017-*.patch 0018-*.patch 0019-*.patch 0020-*.patch 0021-*.patch 0022-*.patch 0023-*.patch
    ```
 3. Your build also has your own "activationopt1a" changes. 0015 (map_dc/coronado/tests/coronado_layers.gd, `_pkg_added`)
    and 0018 (world_fx/breakables.gd `_rebuild`, furniture_layer.gd `_variant`) touch the same functions. If a patch
@@ -43,5 +43,8 @@ What the five patches do:
 - 0019: buildings drawn properly to 300 m (no shape change at 70 m)
 - 0020: car meshes without holes, black smears or missing wheels (near and far versions)
 - 0022: shader baker at export (no first-use shader stalls on the phone)
-- 0021: FSR 1.0 upscaling, MSAA 2x, debanding, AgX tone mapping + mild colour lift, physics catch-up capped at 2 steps
+- 0023: night glow (fades in with darkness, off on the Low preset); MSAA follows the preset (High / Medium 2x, Low off);
+  undoes 0021's FSR line (the Mobile renderer has no FSR)
+- 0021: MSAA 2x, debanding, AgX tone mapping + mild colour lift, physics catch-up capped at 2 steps (its FSR line has no
+  effect on Mobile and is undone by 0023)
   (if 0021 conflicts in project.godot, keep your other settings and only change these six lines)

@@ -1,0 +1,96 @@
+From 59dd49e1f09b8b7b8fd74ff49159bbdec3eea481 Mon Sep 17 00:00:00 2001
+From: bugcheck <bugcheck@local>
+Date: Sat, 7 Nov 2026 14:01:29 +0000
+Subject: [PATCH] Look: night glow (fades in with darkness, off on Low); MSAA
+ per preset; FSR line undone
+
+Yasin 7 Nov (item 8): soft glow at night only (world_fx/sun_sky.gd _glow_apply): fades in with
+SunSky.night_k (smoothstep 0.35..0.85), off by day (no cost) and on the Low preset. Levels 1-4,
+screen blend, no bloom, HDR threshold GLOW_THRESHOLD 0.7, strength GLOW_I 0.8 (two constants to
+tune on the phone: the cloud's GL Compatibility clips at 1.0, so the threshold could not be
+judged there; Vulkan Mobile keeps the brighter-than-white lights).
+GameSettings presets get "glow" (high / med on, low off) and "msaa" is used again
+(high / med 2x, low off) instead of the fixed 2x from 0021.
+0021's rendering/scaling_3d/mode = 1 (FSR) is undone: Godot 4.7's Mobile renderer does not
+support FSR ("FSR upscaling [is] not supported in the Mobile renderer. Falling back to bilinear
+scaling"), so it had no effect on the phone.
+---
+ core/game_settings.gd |  8 ++++----
+ project.godot         |  2 +-
+ world_fx/sun_sky.gd   | 23 +++++++++++++++++++++++
+ 3 files changed, 28 insertions(+), 5 deletions(-)
+
+diff --git a/core/game_settings.gd b/core/game_settings.gd
+index 446f18f1..4791b088 100644
+--- a/core/game_settings.gd
++++ b/core/game_settings.gd
+@@ -20,9 +20,9 @@ const BUSES: Array[String] = ["Master", "Music", "Voice", "SFX"]
+ const PRESETS := {
+ 	# "vis" scales every authored distance of the dense_core scene: visibility ranges, CoronadoWorld
+ 	# streaming radii (r_lod0, r_lod1), camera far; fog density is divided by it. High = 1.0 = as authored.
+-	"low":  {"vis": 0.5,  "shadows": false, "msaa": Viewport.MSAA_DISABLED},  # t171: no realtime shadow pass
+-	"med":  {"vis": 0.75, "shadows": true,  "msaa": Viewport.MSAA_DISABLED},  # t171: sun map on; ShadowPolicy allows only player_car (+blobs)
+-	"high": {"vis": 1.0,  "shadows": true,  "msaa": Viewport.MSAA_DISABLED},  # t171: near-field casters via ShadowPolicy
++	"low":  {"vis": 0.5,  "shadows": false, "msaa": Viewport.MSAA_DISABLED, "glow": false},  # t171: no realtime shadow pass
++	"med":  {"vis": 0.75, "shadows": true,  "msaa": Viewport.MSAA_2X, "glow": true},  # t171: sun map on; ShadowPolicy allows only player_car (+blobs)
++	"high": {"vis": 1.0,  "shadows": true,  "msaa": Viewport.MSAA_2X, "glow": true},  # t171: near-field casters via ShadowPolicy
+ }
+ const DEFAULTS := {"master": 1.0, "music": 0.8, "voice": 1.0, "sfx": 0.9, "preset": "high",   # test9: High default (Yasin); Medium/Low selectable
+ 	"locale": "en", "cam_sens": 1.0, "invert_y": false, "touch_scale": 1.0}
+@@ -134,7 +134,7 @@ func apply_graphics() -> void:
+ 		for sun in _suns(): sun.shadow_enabled = p["shadows"]
+ 	# bugcheck1 0021 (Yasin 7 Nov, Vulkan Mobile renderer): MSAA 2x back on (removed 28 Oct 22:56 on GL Compatibility,
+ 	# where it was costly; on tile-based phone GPUs under Vulkan the 2x resolve is cheap). Same value as project.godot.
+-	get_viewport().msaa_3d = Viewport.MSAA_2X
++	get_viewport().msaa_3d = p.get("msaa", Viewport.MSAA_2X)   # bugcheck1 0023: per preset (Low: off)
+ 	get_viewport().msaa_2d = Viewport.MSAA_DISABLED
+ 	var cam := get_viewport().get_camera_3d()
+ 	if cam:
+diff --git a/project.godot b/project.godot
+index 070ed2d7..4f74a60a 100644
+--- a/project.godot
++++ b/project.godot
+@@ -94,7 +94,7 @@ anti_aliasing/quality/screen_space_aa=0
+ anti_aliasing/quality/use_taa=false
+ anti_aliasing/quality/use_debanding=true
+ viewport/hdr_2d=false
+-scaling_3d/mode=1
++scaling_3d/mode=0
+ 
+ anti_aliasing/quality/msaa_2d=0
+ anti_aliasing/quality/msaa_3d=1
+diff --git a/world_fx/sun_sky.gd b/world_fx/sun_sky.gd
+index 01dc2c36..f57786bf 100644
+--- a/world_fx/sun_sky.gd
++++ b/world_fx/sun_sky.gd
+@@ -203,4 +203,27 @@ func _apply() -> void:
+ 			sun.shadow_enabled = bool(pol.call("sun_shadows_wanted"))
+ 		elif night_k >= 0.85 or elev < -0.8:
+ 			sun.shadow_enabled = false
++	_glow_apply()
+ 	sun_updated.emit(elev, az)
++
++## bugcheck1 0023 (Yasin 7 Nov, item 8): soft glow at night only, fading in with the darkness (NightLights turns the
++## lights on at night_k ~0.77 of full dark; glow follows from dusk to full night). Only the brightest pixels glow (HDR
++## threshold): lit windows, lamp coronas, car lights, neon. Off by day (no cost) and on the Low preset.
++const GLOW_I := 0.8          ## glow strength at full night (tune on the phone)
++const GLOW_THRESHOLD := 0.7  ## only pixels brighter than this glow (lower = more glow; tune on the phone)
++func _glow_apply() -> void:
++	if env == null: return
++	var gs := get_node_or_null(^"/root/GameSettings")
++	var ok := true
++	if gs and gs.has_method(&"preset_data"): ok = bool((gs.preset_data() as Dictionary).get("glow", true))
++	var k := smoothstep(0.35, 0.85, night_k) if ok else 0.0
++	var on := k > 0.01
++	if not env.has_meta(&"glow_set"):
++		env.set_meta(&"glow_set", true)
++		env.glow_normalized = true
++		for lv in 7: env.set_glow_level(lv, 1.0 if lv in [1, 2, 3, 4] else 0.0)
++		env.glow_strength = 1.0; env.glow_bloom = 0.0
++		env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SCREEN
++		env.glow_hdr_threshold = GLOW_THRESHOLD; env.glow_hdr_scale = 2.0; env.glow_hdr_luminance_cap = 4.0
++	if env.glow_enabled != on: env.glow_enabled = on
++	if on: env.glow_intensity = GLOW_I * k
+-- 
+2.43.0
+

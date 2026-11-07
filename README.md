@@ -33,8 +33,8 @@ Coronado content packs (binary only)
 - **Shops look furnished from the door** (0017): the counter, tables and staff were hidden until you stepped about
   a metre inside ([before / after](bugcheck1/img/0017_shop_doorway_before_after.png)).
 - **No first-use shader stalls** (0022): shaders are compiled into the APK at export (Vulkan shader baker).
-- **Sharper, livelier picture** (0021): FSR 1.0 upscaling instead of plain bilinear, MSAA 2x, no sky banding, AgX
-  colours ([tone mapping A/B](bugcheck1/img/0021_tonemap_filmic_agx_mild_strong.png)).
+- **Night glow** (0023): street lamps, windows and car lights glow softly at night (off by day and on Low).
+- **Livelier picture** (0021): MSAA 2x, no sky banding, AgX colours ([tone mapping A/B](bugcheck1/img/0021_tonemap_filmic_agx_mild_strong.png)).
 - **Cars look whole** (0020): the near and far car meshes had black smears, holes and missing wheels from the old
   simplifier; rebuilt with Godot's own LOD generator ([before / after](bugcheck1/img/0020_car_lods_before_after_sakura.png)).
 - **Buildings keep their shape as you approach** (0019): the real building is drawn out to 300 m (was 70 m); the

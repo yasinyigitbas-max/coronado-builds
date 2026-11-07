@@ -144,3 +144,6 @@ junction rework (key bug for cars + one-booking rule) and the turn-curve fix.
 - Not yet: shader baking at export, night glow, per-item graphics switches, render scale (items 7-10).
 - Item 7 → 0022: shader_baker/enabled=true in both Android presets. Export must run with --rendering-method mobile
   on a Vulkan machine (not --headless); not testable in the cloud (no Vulkan, no Android templates).
+- Item 8 → 0023: night glow (SunSky._glow_apply), presets get glow / msaa; FSR line undone (Mobile renderer has no
+  FSR: engine falls back to bilinear). Glow threshold not judgeable in GL Compatibility (clips at 1.0): tune on phone.
+- Items 9, 10: skipped (Yasin).
