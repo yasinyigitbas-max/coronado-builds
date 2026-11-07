@@ -26,3 +26,20 @@ Findings so far (not fixed yet):
   then re-bake (build_buildings.py → bake_chunks → blockmerge bake_blocks → vlit → kit → cellpkg via export_baked.sh).
 - Doors / windows: scan facade kit placements (`facade/tools/facade_kit.gd`, kit_X_Z.scn) + shop prefabs for parts that
   overhang a wall end, cross a door cut, or are clipped by the roof / ground → list + fix the placement rules.
+
+## Queued (Yasin, 2026-11-07 ~03:20 UTC), after the wall-colour / door-window work
+C) **Pedestrian (NPC walker) logic**: walkers wander into streets, can't decide where to go, stand still (sometimes in
+   the middle of a road). Goal: walkers path over ALL legally walkable areas (sidewalks, crosswalks, paths, plazas,
+   parks), strongly prefer sidewalks / footways, cross only at crosswalks / corners, never idle on the carriageway,
+   reroute themselves when blocked. Measure before/after (time on carriageway, idle-on-road count, stuck walkers,
+   car-pedestrian conflicts) and sim cost. Code: traffic/traffic_sim.gd (_step_ped, _ped_turn, _ped_at_corner),
+   map_dc/coronado/crowd/* (crowd layer walkers).
+D) **Full performance audit + 60 fps plan**: CPU side headless (per-system frame cost, streaming / bake-miss hitches,
+   PerfProbe tags, spikes, GC/allocation, physics), plus analysis of Yasin's phone PerfProbe / actprobe1 logs if
+   provided. Deliver: ranked hitch list with causes + fixes (apply the safe ones as patches), and the phone test run
+   needed to confirm a locked 60 fps (GPU cost can't be measured in the cloud).
+
+## Saving rule (Yasin): save progress before the cloud machine can be flushed
+After every finished step, and about every 20 min of work, commit + push to claude/laughing-bell-mxpuak (WIP allowed,
+marked in STATUS.md). Check usage with the session tool; at "warning" level, push immediately and keep STATUS.md's next
+step exact so a new session can continue.
