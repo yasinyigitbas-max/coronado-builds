@@ -137,3 +137,8 @@ junction rework (key bug for cars + one-booking rule) and the turn-curve fix.
 - Quarter mesh (≤ 35 m) smeared dark texels over the bonnet; far mesh (35-140 m) torn, black panels, no wheels.
 - Rebuilt with ImporterMesh.generate_lods (quarter ≈ 50 % level, far = body + wheels at ≈ 20 % level). Needs the
   car LOD re-bake (red_bake_car_lods.gd, car files only). test_pb_carlods (FAIL on release) / carlods3 / car_mesh PASS.
+
+## Cheap look / pacing items 1-6 → 0021
+- physics catch-up 2, debanding, FSR 1.0, MSAA 2x (reverses the 28 Oct GL-era removal), AgX + contrast 1.05 /
+  saturation 1.10 (picked from rendered A/B). test_traffic / cityride / save / car_mesh PASS.
+- Not yet: shader baking at export, night glow, per-item graphics switches, render scale (items 7-10).

@@ -1,0 +1,87 @@
+From c3326e0908e3dc55d3fcb39bfbe46d052d50fc47 Mon Sep 17 00:00:00 2001
+From: bugcheck <bugcheck@local>
+Date: Sat, 7 Nov 2026 13:29:29 +0000
+Subject: [PATCH] Look + frame pacing: FSR 1.0, MSAA 2x, debanding, AgX + mild
+ colour lift, physics catch-up 2
+
+Yasin 7 Nov (Vulkan Mobile renderer, items 1-6 of the cheap list):
+- physics/common/max_physics_steps_per_frame 3 -> 2: a slow frame triggers at most 2 catch-up
+  physics steps (shorter slow-frame chains; game time slows slightly below 30 fps instead of
+  jumping). ui/phone/map_view.gd already paces on wall time.
+- anti_aliasing/quality/use_debanding = true (sky gradient banding).
+- rendering/scaling_3d/mode 0 (bilinear) -> 1 (FSR 1.0): the half-resolution 3D image (scale 0.5)
+  is upscaled with FSR instead of bilinear; scale unchanged.
+- MSAA 3D 2x (project + Android preset value, and core/game_settings.gd, which forced it off since
+  28 Oct on GL Compatibility; cheap on tile-based GPUs under Vulkan).
+- World environment: AgX tone mapping (was Filmic) + adjustments contrast 1.05 / saturation 1.10,
+  chosen from rendered A/B views.
+FSR / MSAA / debanding cannot be rendered on the cloud machine (no Vulkan GPU): judge on the phone.
+---
+ core/game_settings.gd                  |  4 +++-
+ map_dc/coronado/tests/test_coronado.gd |  5 ++++-
+ project.godot                          | 10 +++++-----
+ 3 files changed, 12 insertions(+), 7 deletions(-)
+
+diff --git a/core/game_settings.gd b/core/game_settings.gd
+index 4a48fc62..446f18f1 100644
+--- a/core/game_settings.gd
++++ b/core/game_settings.gd
+@@ -132,7 +132,9 @@ func apply_graphics() -> void:
+ 				sun.directional_shadow_fade_start = 0.8
+ 	else:
+ 		for sun in _suns(): sun.shadow_enabled = p["shadows"]
+-	get_viewport().msaa_3d = Viewport.MSAA_DISABLED   # MSAA removed (Yasin 28 Oct 22:56)
++	# bugcheck1 0021 (Yasin 7 Nov, Vulkan Mobile renderer): MSAA 2x back on (removed 28 Oct 22:56 on GL Compatibility,
++	# where it was costly; on tile-based phone GPUs under Vulkan the 2x resolve is cheap). Same value as project.godot.
++	get_viewport().msaa_3d = Viewport.MSAA_2X
+ 	get_viewport().msaa_2d = Viewport.MSAA_DISABLED
+ 	var cam := get_viewport().get_camera_3d()
+ 	if cam:
+diff --git a/map_dc/coronado/tests/test_coronado.gd b/map_dc/coronado/tests/test_coronado.gd
+index 13d89337..c237c836 100644
+--- a/map_dc/coronado/tests/test_coronado.gd
++++ b/map_dc/coronado/tests/test_coronado.gd
+@@ -70,7 +70,10 @@ func _ready() -> void:
+ 	env.background_mode = Environment.BG_SKY; env.sky = sky
+ 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY; env.ambient_light_energy = 0.35; env.ambient_light_sky_contribution = 0.6; env.ambient_light_color = Color(0.85, 0.85, 0.85)
+ 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC; env.tonemap_white = 2.0
++	# bugcheck1 0021 (Yasin 7 Nov): AgX tone mapping (was Filmic: washed-out highlights / hazy sky) + a mild colour lift.
++	# Picked from rendered A/B views (Filmic / AgX / AgX + mild / AgX + strong): mild. Free on the GPU.
++	env.tonemap_mode = Environment.TONE_MAPPER_AGX; env.tonemap_white = 2.0
++	env.adjustment_enabled = true; env.adjustment_contrast = 1.05; env.adjustment_saturation = 1.10
+ 	env.fog_enabled = "--nofog" not in OS.get_cmdline_user_args(); env.fog_light_color = Color(0.70, 0.80, 0.90); ViewDistance.setup_fog(env)   # gray-dc-fixes4 (c): was exp 0.00035
+ 	env.fog_sky_affect = 0.0
+ 	var we := WorldEnvironment.new(); we.environment = env; add_child(we)
+diff --git a/project.godot b/project.godot
+index fe9345d6..070ed2d7 100644
+--- a/project.godot
++++ b/project.godot
+@@ -92,14 +92,14 @@ rendering_device/fallback_to_d3d12=false
+ anti_aliasing/screen_space_roughness_limiter/enabled=false
+ anti_aliasing/quality/screen_space_aa=0
+ anti_aliasing/quality/use_taa=false
+-anti_aliasing/quality/use_debanding=false
++anti_aliasing/quality/use_debanding=true
+ viewport/hdr_2d=false
+-scaling_3d/mode=0
++scaling_3d/mode=1
+ 
+ anti_aliasing/quality/msaa_2d=0
+-anti_aliasing/quality/msaa_3d=0
++anti_aliasing/quality/msaa_3d=1
+ anti_aliasing/quality/msaa_2d.mobile=0
+-anti_aliasing/quality/msaa_3d.mobile=0
++anti_aliasing/quality/msaa_3d.mobile=1
+ renderer/rendering_method="mobile"
+ renderer/rendering_method.mobile="mobile"
+ textures/vram_compression/import_etc2_astc=true
+@@ -115,4 +115,4 @@ perf_probe_census=false
+ 
+ [physics]
+ 
+-common/max_physics_steps_per_frame=3
++common/max_physics_steps_per_frame=2
+-- 
+2.43.0
+

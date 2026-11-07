@@ -32,7 +32,7 @@ From `project/`, apply every file in `bugcheck1/patches/` **in number order** wi
 git am /path/to/bugcheck1/patches/0001-*.patch
 git am /path/to/bugcheck1/patches/0002-*.patch
 ...
-git am /path/to/bugcheck1/patches/0020-*.patch
+git am /path/to/bugcheck1/patches/0021-*.patch
 ```
 
 | Patch | What it fixes | Files |
@@ -57,6 +57,7 @@ git am /path/to/bugcheck1/patches/0020-*.patch
 | 0018 | Perf: breakable props merged from cached mesh data (no GPU read-back per prop: 58 ms at spawn, up to 15 ms mid-drive) | world_fx/breakables.gd, furniture/furniture_layer.gd |
 | 0019 | Buildings: full block mesh drawn to 300 m, simplified boxes only from 300 m (buildings no longer change shape at 70 m) | perf/lod_bands.gd, buildings/coronado_buildings.gd |
 | 0020 | Cars: near / far car meshes rebuilt without holes, black smears or missing wheels (needs the car LOD re-bake, step 4) | vehicles/car_models.gd, tools/red_bake_car_lods.gd, tests/brown/test_pb_carlods.gd |
+| 0021 | Look + frame pacing: FSR 1.0 upscaling, MSAA 2x, debanding, AgX tone mapping + mild colour lift, physics catch-up 2 steps | project.godot, core/game_settings.gd, map_dc/coronado/tests/test_coronado.gd |
 
 After applying all of them, run the import again (`--import`) so the new script gets its `.uid` / cache entries.
 
@@ -70,7 +71,7 @@ After applying all of them, run the import again (`--import`) so the new script 
 
 ## 4. Re-bake ONLY the changed parts, then export
 Only 0008 / 0011 (street furniture rows of 18 cells) and 0020 (car LOD meshes) change baked content. All other patches
-(0001-0007, 0009, 0010, 0012-0019) are runtime code only.
+(0001-0007, 0009, 0010, 0012-0019, 0021) are runtime code / settings only.
 
 0. Car LODs (0020), incremental, car files only:
    ```
