@@ -60,3 +60,16 @@ send phone PerfProbe / actprobe1 logs periodically: when one arrives, add it to 
   bay). Remaining suspects are things laid OVER the wall: shop door cuts (CoronadoDoorCut) slicing a painted window,
   shop fronts covering part of a painted door, facade-kit trims (facade_kit.gd p_window_trim) not on the shader's bay
   grid. **Waiting for a screenshot / location from Yasin** before changing anything. Moving on to C (pedestrians).
+
+## C (pedestrians), WIP ~04:45 UTC
+Audit (tools/probe_peds.gd, 2 min per spot, "on road" = inside a drivable road's measured width):
+- Traffic-sim walkers on the carriageway 10-30% of samples; standing still on the road up to 31-36 s.
+- Cause 1 (fixed in WIP): short street pieces INSIDE big junctions (links between the halves of 4th St / Amber /
+  C Ave) were part of the walker network: 37 of 52 on-road walkers at Orange & 4th walked "along" them through the box.
+  Now a piece needs >= 4 m of sidewalk outside both junction set-backs.
+- Cause 2 (fixed in WIP): corner trigger / turn target used a flat 4 m from the node centre (inside a 10-14 m wide
+  cross street) -> _corner_s() = junction set-back - 1.5 m (cached).
+- Crowd layer (npc/crowd_layer.gd): 6-13% on road, mostly legit crossings; some W_WAIT samples on the road at Hotel
+  del / Amber (crossing segment starts inside the road?), to check.
+NEXT: refine the audit (split crossing vs walking vs waiting), confirm the WIP patch, then crowd W_WAIT, then commit as 0012.
+WIP patch: bugcheck1/patches/WIP-0012-pedestrians.patch (NOT for the build agent yet).
