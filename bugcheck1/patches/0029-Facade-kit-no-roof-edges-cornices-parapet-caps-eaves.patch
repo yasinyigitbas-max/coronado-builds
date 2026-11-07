@@ -1,0 +1,39 @@
+From c30cb2ba06343897a027ba6b4b42180b58b7fb59 Mon Sep 17 00:00:00 2001
+From: bugcheck <bugcheck@local>
+Date: Sat, 7 Nov 2026 16:42:37 +0000
+Subject: [PATCH] Facade kit: no roof edges (cornices, parapet caps); eaves
+ stay off
+
+Yasin 7 Nov: roofs appear floating on the walls, empty under the roof line; 'remove those eaves and roof
+edges from facade decoration entirely, they were done wrong'. Eaves were already off (EAVES_OFF);
+p_cornice_g still built roofline cornices (simple / bracketed) and a stone parapet cap strip on
+the wall top for ~28.7k bays. ROOF_EDGES_OFF skips them all; the building mesh keeps its own roof.
+Porches, belt courses and pilaster caps stay. Kit bake check: roof_edge_removed 28684, kit
+triangles 7.29 M -> 6.53 M (-10 %), 567 kit chunks changed, 0 script errors.
+Needs: bake_kit.gd + kit_manifest --verify, then bake_cellpkg for the cells whose kit changed
+(list: bugcheck1/KIT_CHANGED_CELLS_0029.txt), then dcut_pkg --merge and verify_bakes.
+---
+ map_dc/coronado/bldg_tex/facade/tools/facade_kit.gd | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/map_dc/coronado/bldg_tex/facade/tools/facade_kit.gd b/map_dc/coronado/bldg_tex/facade/tools/facade_kit.gd
+index 77139ea2..f313cd0c 100644
+--- a/map_dc/coronado/bldg_tex/facade/tools/facade_kit.gd
++++ b/map_dc/coronado/bldg_tex/facade/tools/facade_kit.gd
+@@ -284,7 +284,13 @@ func p_pilaster(F: Dictionary, u: float, h: float) -> void:
+ 	box(F, u - 0.17, u + 0.17, 0.0, h, 0.0, 0.1, PILASTER, 1.0, 2.0); box(F, u - 0.22, u + 0.22, h - 0.25, h, 0.0, 0.16, CORNICE)
+ 	_use("pilaster")
+ 
++## bugcheck1 0029 (Yasin 7 Nov: "remove those eaves and roof edges from facade decoration entirely, they were done
++## wrong" - roofs read as floating on the walls, empty under the roof line): no roofline parts from the kit at all
++## (simple / bracketed cornices and the parapet cap strip). The building mesh keeps its own roof; porches, belt courses
++## and pilaster caps stay (they are not roof edges).
++const ROOF_EDGES_OFF := true
+ func p_cornice_g(F: Dictionary, bw: float, top: float, kind: int) -> void:
++	if ROOF_EDGES_OFF: _use("roof_edge_removed"); return
+ 	if EAVES_OFF and kind < 2:   # visual-src4 (t81u): roofline cornice overhangs (simple / bracketed) count as eaves/overhangs -> plain wall-top cap
+ 		_use("cornice_removed"); kind = 2
+ 	if kind == 0:
+-- 
+2.43.0
+

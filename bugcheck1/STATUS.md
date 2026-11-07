@@ -170,3 +170,6 @@ junction rework (key bug for cars + one-booking rule) and the turn-curve fix.
   space) removed, 1524 moved ~1 m off the walk graph lines. test_tree_col PASS. Tree canopies look black from
   underneath (noted, not fixed).
 - Item 6 in progress: kit roof edges (cornices + parapet cap) off (Yasin: remove eaves / roof edges entirely).
+- Item 6 → 0029: kit roof edges off (Yasin). Kit bake here: 28684 removed, 7.29 M → 6.53 M tris, 283 cells' kits
+  changed (KIT_CHANGED_CELLS_0029.txt). Rendered checks with --nocellpkg showed no regressions; floating rooftop
+  boxes seen from a camera inside a building are a camera artifact. Packages for those cells need re-baking.

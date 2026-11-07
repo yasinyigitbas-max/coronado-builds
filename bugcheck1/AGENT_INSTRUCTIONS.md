@@ -32,7 +32,7 @@ From `project/`, apply every file in `bugcheck1/patches/` **in number order** wi
 git am /path/to/bugcheck1/patches/0001-*.patch
 git am /path/to/bugcheck1/patches/0002-*.patch
 ...
-git am /path/to/bugcheck1/patches/0028-*.patch
+git am /path/to/bugcheck1/patches/0029-*.patch
 ```
 
 | Patch | What it fixes | Files |
@@ -65,6 +65,7 @@ git am /path/to/bugcheck1/patches/0028-*.patch
 | 0026 | Parked cars: impostor lit and shaped like the car; parked batches not capped at 220 m (needs the car LOD re-bake) | vehicles/car_models.gd, vehicles/parked_cars.gd |
 | 0027 | Terrain: smooth grass / sand / soil borders (4-texel majority class, light warp) | map_dc/coronado/terrain/terrain.gdshader |
 | 0028 | Trees: 1524 moved ~1 m off the sidewalk walking lines; 570 removed (inside buildings, on park paths, no free spot); data only (trees.json) | map_dc/coronado/furniture/data/trees.json |
+| 0029 | Facade kit: no roof edges (cornices, parapet caps; eaves already off). Needs the kit bake + package bake of 283 cells | map_dc/coronado/bldg_tex/facade/tools/facade_kit.gd |
 
 After applying all of them, run the import again (`--import`) so the new script gets its `.uid` / cache entries.
 
@@ -77,9 +78,13 @@ After applying all of them, run the import again (`--import`) so the new script 
 - Suggested release tag when Yasin approves: `coronado-fix3`, prerelease, title **"Coronado fix3"**.
 
 ## 4. Re-bake ONLY the changed parts, then export
-Only 0008 / 0011 (street furniture rows of 18 cells) and 0020 / 0026 (car LOD meshes) change baked content. All other patches
+Only 0008 / 0011 (street furniture rows of 18 cells), 0020 / 0026 (car LOD meshes) and 0029 (facade kit, 283 cell packages) change baked content. All other patches
 (0001-0007, 0009, 0010, 0012-0019, 0021-0025, 0027) are runtime code / settings only.
 
+00. Facade kit (0029): `godot --headless --path . -s res://map_dc/coronado/bldg_tex/facade/tools/bake_kit.gd`, then
+   `godot --headless --path . -s res://tools/gray_bake/kit_manifest.gd -- --verify=12` (expect `roof_edge_removed 28684`
+   in the BAKE line, kit tris ~6.53 M). Then add the 283 cells of `bugcheck1/KIT_CHANGED_CELLS_0029.txt` to the
+   `--only=` list of the bake_cellpkg step below (together with the DOOR_CLEAR_CELLS), so their packages carry the new kits.
 0. Car LODs (0020), incremental, car files only:
    ```
    godot --headless --path . -s res://tools/red_bake_car_lods.gd
